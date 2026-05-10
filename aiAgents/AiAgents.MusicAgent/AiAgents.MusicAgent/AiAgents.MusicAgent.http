@@ -1,0 +1,6 @@
+@AiAgents.MusicAgent_HostAddress = http://localhost:5198
+
+GET {{AiAgents.MusicAgent_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -1,0 +1,56 @@
+services:
+
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "${SA_PASSWORD}"
+      MSSQL_PID: Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqldata:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"${SA_PASSWORD}\" -C -Q \"SELECT 1\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  backend:
+    build:
+      context: ./aiAgents/AiAgents.MusicAgent
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: >-
+        Server=db;Database=MusicAgent;User Id=sa;
+        Password=${SA_PASSWORD};TrustServerCertificate=True
+      Jwt__SigningKey: "${JWT_SIGNING_KEY}"
+      Jwt__Issuer: "${JWT_ISSUER:-AiAgents.MusicAgent}"
+      Jwt__Audience: "${JWT_AUDIENCE:-AiAgents.MusicAgent.Client}"
+      Jwt__ExpiryMinutes: "${JWT_EXPIRY_MINUTES:-120}"
+      Admin__Token: "${ADMIN_TOKEN}"
+    volumes:
+      # Mount the dataset so the container can load it on startup
+      - ./aiAgents/AiAgents.MusicAgent/SpotifySongs.csv:/app/SpotifySongs.csv:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./musicle
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:5000}"
+      NEXT_PUBLIC_SIGNALR_URL: "${NEXT_PUBLIC_SIGNALR_URL:-http://localhost:5000/hubs/analysis}"
+    depends_on:
+      - backend
+
+volumes:
+  sqldata:

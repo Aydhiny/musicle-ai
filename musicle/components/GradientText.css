@@ -1,0 +1,70 @@
+.animated-gradient-text {
+  position: relative;
+  margin: 0; /* remove auto spacing */
+  display: inline-flex; /* shrink to fit content */
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1.25rem;
+  font-weight: 700; /* make text bold */
+  backdrop-filter: blur(10px);
+  transition: box-shadow 0.5s ease-out;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.animated-gradient-text.with-border {
+  padding: 0.2rem 0.5rem; /* smaller padding, tighter around text */
+}
+
+.gradient-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: inherit;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.gradient-overlay::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: inherit;
+  width: calc(100% - 2px);
+  height: calc(100% - 2px);
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background-color: #060010;
+  z-index: -1;
+}
+
+.text-content {
+  position: relative;
+  z-index: 2;
+  font-weight: 700;
+  color: transparent;
+  background-clip: text;
+  -webkit-background-clip: text;
+  /* gradient fill for text */
+  background-image: linear-gradient(45deg, #5227ff, #ff9ffc, #b19eef);
+}
+
+/* gradient border layer */
+.text-content::before {
+  content: attr(data-text); /* duplicate text for border */
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  font-weight: 700;
+  -webkit-text-stroke: 2px transparent; /* fallback */
+  background: linear-gradient(45deg, #ffffff, #ffffff, #ffffff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}

@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="AiAgents.Core/AiAgents.Core.csproj" />
+  <Project Path="AiAgents.MusicAgent/AiAgents.MusicAgent.csproj" />
+  <Project Path="AiAgents.Shared/AiAgents.Shared.csproj" Id="2a3ad1e5-4ed8-4e6c-8bc3-150a5d1e2871" />
+  <Project Path="AiAgents.Web/AiAgents.Web.csproj" />
+</Solution>

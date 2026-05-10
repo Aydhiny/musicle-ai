@@ -1,0 +1,51 @@
+# ── .NET ────────────────────────────────────────────────────────────────────
+bin/
+obj/
+*.user
+.vs/
+*.suo
+*.sln.DotSettings.user
+TestResults/
+
+# Entity Framework migrations snapshots are committed; build output is not
+**/Migrations/**/*.Designer.cs
+# (remove the line above if you want to commit designer files)
+
+# Machine-local overrides
+appsettings.Production.json
+appsettings.Staging.json
+appsettings.local.json
+appsettings.*.local.json
+
+# ── ML models & large data ───────────────────────────────────────────────────
+**/Models/*.zip
+SpotifySongs.csv
+
+# ── SQLite (local dev artefacts) ────────────────────────────────────────────
+*.db
+*.db-shm
+*.db-wal
+
+# ── Node / Next.js ───────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.turbo/
+
+# ── Environment / secrets ────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+# .env.example is committed intentionally
+
+# ── IDE / tooling ─────────────────────────────────────────────────────────────
+.claude/
+.dotnet/
+.vscode/
+.idea/
+
+# ── OS cruft ─────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
