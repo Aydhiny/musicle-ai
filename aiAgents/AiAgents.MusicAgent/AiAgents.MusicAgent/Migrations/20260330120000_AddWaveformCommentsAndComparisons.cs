@@ -5,7 +5,6 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace AiAgents.MusicAgent.Migrations
 {
-    [Migration("20260330120000_AddWaveformCommentsAndComparisons")]
     public partial class AddWaveformCommentsAndComparisons : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)
