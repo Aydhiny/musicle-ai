@@ -752,14 +752,6 @@ export const ResultsSection: React.FC<ResultsSectionProps> = ({ result, onReset 
         },
       ];
 
-      if (coverArt.dataUrl) {
-        mediaItems.unshift({
-          type: "image",
-          url: coverArt.dataUrl,
-          label: "Analysis cover art",
-        });
-      }
-
       await createHighlightPost(
         {
           title: `Analysis: ${result.fileName}`,

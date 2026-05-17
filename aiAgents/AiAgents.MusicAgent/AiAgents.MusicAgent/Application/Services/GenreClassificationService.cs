@@ -39,10 +39,9 @@ namespace AiAgents.MusicAgent.Application.Services
 
         public async Task<GenreDecision> ClassifyAsync(Characteristics chars, CancellationToken ct)
         {
+            // ── ML model — primary path ───────────────────────────────────────────
             try
             {
-                // Try ML.NET prediction first
-                _logger.LogDebug("Attempting ML.NET genre prediction");
                 var mlPrediction = await _mlClassifier.PredictAsync(chars, ct);
 
                 if (mlPrediction != null && !string.IsNullOrEmpty(mlPrediction.Genre))
@@ -50,12 +49,10 @@ namespace AiAgents.MusicAgent.Application.Services
                     _logger.LogInformation("ML prediction: {Genre} ({Confidence}%)",
                         mlPrediction.Genre, mlPrediction.Confidence);
 
-                    var subgenre = DetermineSubgenre(mlPrediction.Genre, chars);
-
                     return new GenreDecision
                     {
-                        Genre = mlPrediction.Genre,
-                        Subgenre = subgenre,
+                        Genre      = mlPrediction.Genre,
+                        Subgenre   = DetermineSubgenre(mlPrediction.Genre, chars),
                         Confidence = mlPrediction.Confidence
                     };
                 }
@@ -65,7 +62,7 @@ namespace AiAgents.MusicAgent.Application.Services
                 _logger.LogWarning(ex, "ML prediction failed, falling back to rule-based classification");
             }
 
-            // Fallback to rule-based classification
+            // ── Rule-based fallback (only if ML model unavailable) ────────────────
             return await ClassifyRuleBasedAsync(chars, ct);
         }
 

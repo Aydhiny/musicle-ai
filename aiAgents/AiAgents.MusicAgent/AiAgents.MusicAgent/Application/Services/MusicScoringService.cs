@@ -1,6 +1,7 @@
 ﻿using AiAgents.MusicAgent.Application.Interfaces;
 using AiAgents.MusicAgent.Domain.Entities;
 using AiAgents.MusicAgent.Domain.Rules;
+using AiAgents.MusicAgent.ML;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,13 +13,19 @@ namespace AiAgents.MusicAgent.Application.Services
     {
         private readonly ILogger<MusicScoringService> _logger;
         private readonly ISpotifyDatasetLoader _datasetLoader;
+        private readonly CommercialScorePredictor _commercialPredictor;
+        private readonly AudioFeatureLearner _featureLearner;
 
         public MusicScoringService(
             ILogger<MusicScoringService> logger,
-            ISpotifyDatasetLoader datasetLoader)
+            ISpotifyDatasetLoader datasetLoader,
+            CommercialScorePredictor commercialPredictor,
+            AudioFeatureLearner featureLearner)
         {
             _logger = logger;
             _datasetLoader = datasetLoader;
+            _commercialPredictor = commercialPredictor;
+            _featureLearner = featureLearner;
         }
 
         public MusicScores CalculateScores(Characteristics characteristics, string genre, int confidence)
@@ -27,10 +34,19 @@ namespace AiAgents.MusicAgent.Application.Services
 
             var scores = new MusicScores();
 
-            // Calculate individual scores
-            scores.CommercialScore = CalculateCommercialScore(characteristics, genre);
+            // Commercial score: ML regression model trained on Spotify popularity data.
+            // Falls back to dataset-comparison heuristic if the model isn't ready yet.
+            scores.CommercialScore = _commercialPredictor.IsReady
+                ? _commercialPredictor.Predict(characteristics)
+                : CalculateCommercialScoreFallback(characteristics, genre);
+
             scores.ProductionScore = CalculateProductionScore(characteristics);
-            scores.ViralPotential = CalculateViralPotential(characteristics, genre);
+
+            // Viral potential: ML regression model (AudioFeatureLearner) trained on
+            // Spotify popularity, scaled to 1–10.  Falls back to rule-based if not ready.
+            scores.ViralPotential = _featureLearner.IsReady
+                ? Math.Max(1, Math.Min(10, (int)Math.Round(_featureLearner.PredictViralPotential(characteristics) * 10)))
+                : CalculateViralPotentialFallback(characteristics, genre);
 
             // Generate strengths and improvements
             scores.Strengths = IdentifyStrengths(characteristics, genre, scores);
@@ -43,9 +59,9 @@ namespace AiAgents.MusicAgent.Application.Services
         }
 
         /// <summary>
-        /// Calculate commercial potential (1-10) based on genre benchmarks
+        /// Fallback heuristic when the ML regression model hasn't been trained yet.
         /// </summary>
-        private int CalculateCommercialScore(Characteristics characteristics, string genre)
+        private int CalculateCommercialScoreFallback(Characteristics characteristics, string genre)
         {
             var score = 5.0; // Base score
 
@@ -136,9 +152,9 @@ namespace AiAgents.MusicAgent.Application.Services
         }
 
         /// <summary>
-        /// Calculate viral potential (1-10) based on social media trends
+        /// Rule-based fallback for viral potential (used only before ML models are trained).
         /// </summary>
-        private int CalculateViralPotential(Characteristics characteristics, string genre)
+        private int CalculateViralPotentialFallback(Characteristics characteristics, string genre)
         {
             var score = 5.0;
 

@@ -1,8 +1,12 @@
+"use client";
+
 import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { Users, Mic, Heart, MessageCircle, Play, Music, ArrowRight } from "lucide-react";
 
-const WAVEFORM_BARS = Array.from({ length: 60 }, (_, i) => Math.abs(Math.sin(i * 0.15) * 60 + ((i * 17) % 20) + 10));
+// Pre-computed as integers so SSR and client produce identical strings (no float precision mismatch)
+const WAVEFORM_BARS = Array.from({ length: 60 }, (_, i) => Math.round(Math.abs(Math.sin(i * 0.15) * 60 + ((i * 17) % 20) + 10)));
+const SKETCH_BARS = Array.from({ length: 40 }, (_, i) => Math.round(30 + Math.abs(Math.sin(i * 0.2) * 40)));
 
 const MusicleFeedSection = () => {
   const [playingSketch, setPlayingSketch] = useState(null);
@@ -215,14 +219,11 @@ const MusicleFeedSection = () => {
                 {/* Mini waveform header */}
                 <div className="h-16 bg-gradient-to-r from-blue-500/20 to-purple-500/20 relative overflow-hidden">
                   <div className="absolute inset-0 flex items-center justify-center gap-px px-4">
-                    {Array.from({ length: 40 }, (_, i) => (
+                    {SKETCH_BARS.map((barHeight, i) => (
                       <div
                         key={i}
-                        className="w-0.5 bg-white/40 rounded-full transition-all"
-                        style={{
-                          height: `${30 + Math.abs(Math.sin(i * 0.2) * 40)}%`,
-                          opacity: playingSketch === idx ? 0.8 : 0.4,
-                        }}
+                        className={`w-0.5 rounded-full transition-all ${playingSketch === idx ? "bg-white/80" : "bg-white/40"}`}
+                        style={{ height: `${barHeight}%` }}
                       />
                     ))}
                   </div>

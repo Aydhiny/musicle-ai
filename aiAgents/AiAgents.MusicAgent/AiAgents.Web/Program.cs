@@ -92,6 +92,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 builder.Services.AddSingleton<ISpotifyDatasetLoader, SpotifyDatasetLoader>();
+builder.Services.AddSingleton<CommercialScorePredictor>();
+builder.Services.AddSingleton<AudioFeatureLearner>();
 
 builder.Services.AddScoped<IGenreClassifier>(sp =>
 {
@@ -177,6 +179,13 @@ using (var scope = app.Services.CreateScope())
             logger.LogInformation("Loading Spotify dataset from: {Path}", csvPath);
             var dataset = await datasetLoader.LoadDatasetAsync(csvPath);
             logger.LogInformation("Loaded {Count} tracks from Spotify dataset", dataset.Count);
+
+            // Train ML regression models on Spotify dataset
+            var featureLearner = services.GetRequiredService<AudioFeatureLearner>();
+            featureLearner.Train(dataset);  // Danceability, Valence, Acousticness, Speechiness, ViralPotential
+
+            var commercialPredictor = services.GetRequiredService<CommercialScorePredictor>();
+            commercialPredictor.Train(dataset);  // Commercial score (Popularity proxy)
 
             var classifier = services.GetRequiredService<IGenreClassifier>();
             var modelPath = Path.Combine(app.Environment.ContentRootPath, "Models", "genre_model.zip");

@@ -61,6 +61,8 @@
         public float Instrumentalness { get; set; }
         public float Liveness { get; set; }
         public float Popularity { get; set; }
+        public float SpectralCentroid { get; set; }   // normalised 0–1 (Hz / 4000)
+        public float ZeroCrossingRate { get; set; }
 
         // Gold label - corrected by user OR original prediction if validated
         public string Label { get; set; } = string.Empty;
