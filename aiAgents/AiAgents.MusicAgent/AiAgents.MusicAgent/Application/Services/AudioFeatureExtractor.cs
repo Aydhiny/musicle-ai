@@ -178,8 +178,7 @@ namespace AiAgents.MusicAgent.Application.Services
             double rawInstrumentalness = Math.Max(0, Math.Min(1, 1.0 - Math.Pow(flatness * 2.5, 0.6)));
             // Soften further when centroid is in the electronic/pop range (above 1200 Hz)
             // — electronic music is tonally simple but not "instrumental" in Spotify's sense
-            double centroids_soften = centroids.Count > 0 ? centroids.Average() : 2000;
-            double instrumentalness = centroids_soften > 1200
+            double instrumentalness = centroid > 1200
                 ? Math.Min(rawInstrumentalness, 0.65)
                 : rawInstrumentalness;
 

@@ -24,6 +24,9 @@ namespace AiAgents.MusicAgent.ML
         private readonly ISpotifyDatasetLoader _datasetLoader;
         private readonly MusicAgentDbContext _db;
         private ITransformer? _model;
+        // Cached after Train() or first load — CreatePredictionEngine compiles the full
+        // transformer pipeline; recreating it per request wastes significant CPU.
+        private PredictionEngine<GenreTrainingData, GenrePredictionOutput>? _predictionEngine;
         private readonly string _modelPath;
 
         public MLNetGenreClassifierWithFeedback(
@@ -229,9 +232,10 @@ namespace AiAgents.MusicAgent.ML
                     i, prec, rec, f1);
             }
 
-            // STEP 7: Save model
+            // STEP 7: Save model and cache the prediction engine
             _mlContext.Model.Save(_model, dataView.Schema, _modelPath);
             _logger.LogInformation("💾 Model saved to {Path}", _modelPath);
+            _predictionEngine = _mlContext.Model.CreatePredictionEngine<GenreTrainingData, GenrePredictionOutput>(_model);
 
             // STEP 8: Mark feedback as used in training
             await MarkFeedbackAsUsedAsync(ct);
@@ -252,7 +256,7 @@ namespace AiAgents.MusicAgent.ML
         {
             var feedbackData = await _db.Set<UserFeedback>()
                 .Include(f => f.Analysis)
-                .Where(f => f.CorrectedGenre != null) // Only feedback with genre corrections
+                .Where(f => f.CorrectedGenre != null)
                 .ToListAsync(ct);
 
             var result = new List<EnhancedTrainingData>();
@@ -320,12 +324,13 @@ namespace AiAgents.MusicAgent.ML
 
         public async Task<GenrePrediction> PredictAsync(Characteristics characteristics, CancellationToken ct = default)
         {
-            if (_model == null)
+            if (_predictionEngine == null)
             {
                 if (File.Exists(_modelPath))
                 {
                     _logger.LogInformation("📂 Loading model from {Path}", _modelPath);
                     _model = _mlContext.Model.Load(_modelPath, out _);
+                    _predictionEngine = _mlContext.Model.CreatePredictionEngine<GenreTrainingData, GenrePredictionOutput>(_model);
                 }
                 else
                 {
@@ -333,8 +338,6 @@ namespace AiAgents.MusicAgent.ML
                     await TrainAsync(ct);
                 }
             }
-
-            var predictionEngine = _mlContext.Model.CreatePredictionEngine<GenreTrainingData, GenrePredictionOutput>(_model!);
 
             float energy         = (float)characteristics.Energy;
             float danceability   = (float)characteristics.Danceability;
@@ -368,7 +371,7 @@ namespace AiAgents.MusicAgent.ML
                 ValenceEnergy        = valence * energy,
             };
 
-            var prediction = predictionEngine.Predict(input);
+            var prediction = _predictionEngine!.Predict(input);
             var maxConfidence = prediction.Score?.Max() ?? 0f;
 
             return new GenrePrediction

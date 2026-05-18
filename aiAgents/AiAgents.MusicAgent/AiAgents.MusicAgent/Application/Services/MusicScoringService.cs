@@ -2,9 +2,6 @@
 using AiAgents.MusicAgent.Domain.Entities;
 using AiAgents.MusicAgent.Domain.Rules;
 using AiAgents.MusicAgent.ML;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace AiAgents.MusicAgent.Application.Services
 {
@@ -16,6 +13,13 @@ namespace AiAgents.MusicAgent.Application.Services
         private readonly CommercialScorePredictor _commercialPredictor;
         private readonly AudioFeatureLearner _featureLearner;
 
+        // Pre-computed averages for the fallback commercial score heuristic.
+        // Computed once at construction to avoid scanning the dataset on every request.
+        private readonly double _popularAvgDanceability;
+        private readonly double _popularAvgEnergy;
+        private readonly double _popularAvgValence;
+        private readonly double _popularAvgTempo;
+
         public MusicScoringService(
             ILogger<MusicScoringService> logger,
             ISpotifyDatasetLoader datasetLoader,
@@ -26,7 +30,23 @@ namespace AiAgents.MusicAgent.Application.Services
             _datasetLoader = datasetLoader;
             _commercialPredictor = commercialPredictor;
             _featureLearner = featureLearner;
+
+            var popularTracks = datasetLoader.GetCachedDataset()
+                .Where(t => t.Popularity >= 70)
+                .ToList();
+
+            if (popularTracks.Count > 0)
+            {
+                _popularAvgDanceability = popularTracks.Average(t => t.Danceability);
+                _popularAvgEnergy       = popularTracks.Average(t => t.Energy);
+                _popularAvgValence      = popularTracks.Average(t => t.Valence);
+                _popularAvgTempo        = popularTracks.Average(t => t.Tempo);
+            }
         }
+
+        // Clamps a raw score to the 1–10 integer range used by all scoring methods.
+        private static int ClampScore(double score) =>
+            Math.Max(1, Math.Min(10, (int)Math.Round(score)));
 
         public MusicScores CalculateScores(Characteristics characteristics, string genre, int confidence)
         {
@@ -63,34 +83,20 @@ namespace AiAgents.MusicAgent.Application.Services
         /// </summary>
         private int CalculateCommercialScoreFallback(Characteristics characteristics, string genre)
         {
-            var score = 5.0; // Base score
+            var score = 5.0;
 
-            // Compare against successful tracks in the dataset
-            var dataset = _datasetLoader.GetCachedDataset();
-            var popularTracks = dataset.Where(t => t.Popularity >= 70).ToList();
-
-            if (popularTracks.Any())
+            if (_popularAvgEnergy > 0)
             {
-                var avgDanceability = popularTracks.Average(t => t.Danceability);
-                var avgEnergy = popularTracks.Average(t => t.Energy);
-                var avgValence = popularTracks.Average(t => t.Valence);
-                var avgTempo = popularTracks.Average(t => t.Tempo);
+                var danceabilityDiff = 1.0 - Math.Abs(characteristics.Danceability - _popularAvgDanceability);
+                var energyDiff       = 1.0 - Math.Abs(characteristics.Energy       - _popularAvgEnergy);
+                var valenceDiff      = 1.0 - Math.Abs(characteristics.Valence      - _popularAvgValence);
+                var tempoDiff        = 1.0 - Math.Min(1.0, Math.Abs(characteristics.Tempo - _popularAvgTempo) / 50.0);
 
-                // Compare to successful tracks
-                var danceabilityDiff = 1.0 - Math.Abs(characteristics.Danceability - avgDanceability);
-                var energyDiff = 1.0 - Math.Abs(characteristics.Energy - avgEnergy);
-                var valenceDiff = 1.0 - Math.Abs(characteristics.Valence - avgValence);
-                var tempoDiff = 1.0 - Math.Min(1.0, Math.Abs(characteristics.Tempo - avgTempo) / 50.0);
-
-                var similarity = (danceabilityDiff + energyDiff + valenceDiff + tempoDiff) / 4.0;
-                score = 5.0 + (similarity * 5.0); // Scale to 5-10 range
+                score = 5.0 + (danceabilityDiff + energyDiff + valenceDiff + tempoDiff) / 4.0 * 5.0;
             }
 
-            // Genre-specific adjustments
             score += GetGenreCommercialBonus(characteristics, genre);
-
-            // Clamp to 1-10
-            return Math.Max(1, Math.Min(10, (int)Math.Round(score)));
+            return ClampScore(score);
         }
 
         private double GetGenreCommercialBonus(Characteristics characteristics, string genre)
@@ -148,7 +154,7 @@ namespace AiAgents.MusicAgent.Application.Services
             if (characteristics.Energy > 0.95 || characteristics.Energy < 0.05)
                 score -= 1.0;
 
-            return Math.Max(1, Math.Min(10, (int)Math.Round(score)));
+            return ClampScore(score);
         }
 
         /// <summary>
@@ -193,8 +199,7 @@ namespace AiAgents.MusicAgent.Application.Services
                 _ => 0
             };
             score += genreBonus;
-
-            return Math.Max(1, Math.Min(10, (int)Math.Round(score)));
+            return ClampScore(score);
         }
 
         /// <summary>

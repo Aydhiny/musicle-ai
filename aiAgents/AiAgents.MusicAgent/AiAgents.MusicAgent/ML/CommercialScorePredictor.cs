@@ -17,8 +17,11 @@ namespace AiAgents.MusicAgent.ML
         private readonly MLContext _mlContext;
         private readonly ILogger<CommercialScorePredictor> _logger;
         private ITransformer? _model;
+        // Cached after Train() — CreatePredictionEngine is expensive; creating it per-call
+        // would re-compile the transformer pipeline on every scored track.
+        private PredictionEngine<CommercialInput, SingleOutput>? _predictionEngine;
 
-        public bool IsReady => _model != null;
+        public bool IsReady => _predictionEngine != null;
 
         public CommercialScorePredictor(ILogger<CommercialScorePredictor> logger)
         {
@@ -39,16 +42,16 @@ namespace AiAgents.MusicAgent.ML
                 .Where(t => t.Popularity > 0)
                 .Select(t => new CommercialInput
                 {
-                    Danceability      = t.Danceability,
-                    Energy            = t.Energy,
-                    Valence           = t.Valence,
-                    NormalizedTempo   = (float)(t.Tempo / 200.0),           // 0–200 BPM → 0–1
-                    Acousticness      = t.Acousticness,
-                    Speechiness       = t.Speechiness,
+                    Danceability       = t.Danceability,
+                    Energy             = t.Energy,
+                    Valence            = t.Valence,
+                    NormalizedTempo    = (float)(t.Tempo / 220.0),           // 0–220 BPM → 0–1 (matches AudioFeatureLearner)
+                    Acousticness       = t.Acousticness,
+                    Speechiness        = t.Speechiness,
                     NormalizedLoudness = (float)((t.Loudness + 60.0) / 60.0), // -60..0 dB → 0–1
-                    Instrumentalness  = t.Instrumentalness,
-                    Liveness          = t.Liveness,
-                    Label             = t.Popularity / 10f                  // 0–100 → 0–10
+                    Instrumentalness   = t.Instrumentalness,
+                    Liveness           = t.Liveness,
+                    Label              = t.Popularity / 10f                  // 0–100 → 0–10
                 })
                 .ToList();
 
@@ -84,6 +87,8 @@ namespace AiAgents.MusicAgent.ML
             _logger.LogInformation(
                 "Commercial score model ready — R²={R2:F4} RMSE={RMSE:F4} MAE={MAE:F4}",
                 metrics.RSquared, metrics.RootMeanSquaredError, metrics.MeanAbsoluteError);
+
+            _predictionEngine = _mlContext.Model.CreatePredictionEngine<CommercialInput, SingleOutput>(_model);
         }
 
         /// <summary>
@@ -92,30 +97,23 @@ namespace AiAgents.MusicAgent.ML
         /// </summary>
         public int Predict(Characteristics chars)
         {
-            if (_model == null)
-            {
-                return 5; // neutral fallback before training completes
-            }
-
-            var engine = _mlContext.Model.CreatePredictionEngine<CommercialInput, CommercialOutput>(_model);
+            if (_predictionEngine == null) return 5;
 
             var input = new CommercialInput
             {
                 Danceability       = (float)chars.Danceability,
                 Energy             = (float)chars.Energy,
                 Valence            = (float)chars.Valence,
-                NormalizedTempo    = (float)(chars.Tempo / 200.0),
+                NormalizedTempo    = (float)(chars.Tempo / 220.0),
                 Acousticness       = (float)chars.Acousticness,
                 Speechiness        = (float)chars.Speechiness,
                 NormalizedLoudness = (float)((chars.Loudness + 60.0) / 60.0),
                 Instrumentalness   = (float)chars.Instrumentalness,
-                Liveness           = 0.15f,
-                Label              = 0  // ignored at inference
+                Liveness           = 0.15f
             };
 
-            var result = engine.Predict(input);
-            // Clamp to 1–10 and round
-            return Math.Max(1, Math.Min(10, (int)Math.Round(result.Score)));
+            var score = _predictionEngine.Predict(input).Score;
+            return Math.Max(1, Math.Min(10, (int)Math.Round(score)));
         }
     }
 
@@ -135,9 +133,5 @@ namespace AiAgents.MusicAgent.ML
         public float Label { get; set; }
     }
 
-    public class CommercialOutput
-    {
-        [ColumnName("Score")]
-        public float Score { get; set; }
-    }
+    // CommercialOutput removed — uses SingleOutput from AudioFeatureLearner (same namespace, identical schema).
 }

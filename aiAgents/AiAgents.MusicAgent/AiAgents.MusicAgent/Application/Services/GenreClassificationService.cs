@@ -63,14 +63,12 @@ namespace AiAgents.MusicAgent.Application.Services
             }
 
             // ── Rule-based fallback (only if ML model unavailable) ────────────────
-            return await ClassifyRuleBasedAsync(chars, ct);
+            return ClassifyRuleBasedAsync(chars);
         }
 
-        private async Task<GenreDecision> ClassifyRuleBasedAsync(Characteristics chars, CancellationToken ct)
+        private GenreDecision ClassifyRuleBasedAsync(Characteristics chars)
         {
             _logger.LogDebug("Using rule-based genre classification");
-
-            await Task.CompletedTask; // Make it async
 
             var scores = new Dictionary<string, int>();
 
