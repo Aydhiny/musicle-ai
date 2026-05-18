@@ -9,7 +9,6 @@ namespace AiAgents.MusicAgent.Application.Services
     public class MusicScoringService : IMusicScoringService
     {
         private readonly ILogger<MusicScoringService> _logger;
-        private readonly ISpotifyDatasetLoader _datasetLoader;
         private readonly CommercialScorePredictor _commercialPredictor;
         private readonly AudioFeatureLearner _featureLearner;
 
@@ -27,7 +26,6 @@ namespace AiAgents.MusicAgent.Application.Services
             AudioFeatureLearner featureLearner)
         {
             _logger = logger;
-            _datasetLoader = datasetLoader;
             _commercialPredictor = commercialPredictor;
             _featureLearner = featureLearner;
 

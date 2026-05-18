@@ -19,6 +19,10 @@ namespace AiAgents.MusicAgent.ML
     {
         private readonly MLContext _mlContext;
         private readonly ILogger<AudioFeatureLearner> _logger;
+        // PredictionEngine<T,U> is NOT thread-safe — it reuses an internal buffer.
+        // This class is a Singleton so all concurrent requests share these engines.
+        // Every Predict() call must hold this lock to serialise buffer access.
+        private readonly object _lock = new();
 
         // One prediction engine per target feature
         private PredictionEngine<FeatureInput, SingleOutput>? _danceabilityEngine;
@@ -147,11 +151,15 @@ namespace AiAgents.MusicAgent.ML
 
             var input = ToInput(chars);
 
-            chars.Danceability = Clamp(Predict(_danceabilityEngine!, input));
-            chars.Valence      = Clamp(Predict(_valenceEngine!, input));
-            chars.Acousticness = Clamp(Predict(_acousticnessEngine!, input));
-            chars.Speechiness  = Clamp(Predict(_speechinessEngine!, input));
-            // ViralPotential is exposed via ViralScore property (see below)
+            // Lock required — PredictionEngine reuses an internal buffer and is not thread-safe.
+            // LightGBM predictions take microseconds, so contention is negligible.
+            lock (_lock)
+            {
+                chars.Danceability = Clamp(_danceabilityEngine!.Predict(input).Score);
+                chars.Valence      = Clamp(_valenceEngine!.Predict(input).Score);
+                chars.Acousticness = Clamp(_acousticnessEngine!.Predict(input).Score);
+                chars.Speechiness  = Clamp(_speechinessEngine!.Predict(input).Score);
+            }
         }
 
         /// <summary>
@@ -160,7 +168,10 @@ namespace AiAgents.MusicAgent.ML
         public double PredictViralPotential(Characteristics chars)
         {
             if (_viralPotentialEngine == null) return 0.5;
-            return Clamp(Predict(_viralPotentialEngine, ToInput(chars)));
+            lock (_lock)
+            {
+                return Clamp(_viralPotentialEngine.Predict(ToInput(chars)).Score);
+            }
         }
 
         // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -172,10 +183,6 @@ namespace AiAgents.MusicAgent.ML
             NormLoudness     = (float)((chars.Loudness + 60.0) / 60.0),
             Instrumentalness = (float)chars.Instrumentalness
         };
-
-        private static double Predict(
-            PredictionEngine<FeatureInput, SingleOutput> engine, FeatureInput input)
-            => engine.Predict(input).Score;
 
         private static double Clamp(double v) => Math.Max(0, Math.Min(1, v));
     }

@@ -19,6 +19,9 @@ namespace AiAgents.MusicAgent.ML
         private ITransformer? _model;
         // Cached after Train() — CreatePredictionEngine is expensive; creating it per-call
         // would re-compile the transformer pipeline on every scored track.
+        // Also: PredictionEngine<T,U> is NOT thread-safe (reuses an internal buffer).
+        // This class is a Singleton, so _lock serialises all concurrent Predict() calls.
+        private readonly object _lock = new();
         private PredictionEngine<CommercialInput, SingleOutput>? _predictionEngine;
 
         public bool IsReady => _predictionEngine != null;
@@ -112,7 +115,8 @@ namespace AiAgents.MusicAgent.ML
                 Liveness           = 0.15f
             };
 
-            var score = _predictionEngine.Predict(input).Score;
+            float score;
+            lock (_lock) { score = _predictionEngine.Predict(input).Score; }
             return Math.Max(1, Math.Min(10, (int)Math.Round(score)));
         }
     }
