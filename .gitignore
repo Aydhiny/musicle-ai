@@ -16,6 +16,7 @@ appsettings.Production.json
 appsettings.Staging.json
 appsettings.local.json
 appsettings.*.local.json
+appsettings
 
 # ── ML models & large data ───────────────────────────────────────────────────
 **/Models/*.zip
