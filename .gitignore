@@ -1,52 +1,183 @@
-# ── .NET ────────────────────────────────────────────────────────────────────
+# =============================================================================
+# .NET / C#
+# =============================================================================
 bin/
 obj/
+out/
+publish/
+
 *.user
-.vs/
+*.rsuser
 *.suo
+*.userosscache
+*.sln.docstates
 *.sln.DotSettings.user
+
+.vs/
 TestResults/
+BenchmarkDotNet.Artifacts/
 
-# Entity Framework migrations snapshots are committed; build output is not
+# NuGet
+*.nupkg
+packages/
+.nuget/
+
+# Rider / ReSharper
+_ReSharper*/
+*.DotSettings.user
+
+# Logs
+*.log
+
+# =============================================================================
+# Entity Framework
+# =============================================================================
+
+# EF migration designer files (optional)
 **/Migrations/**/*.Designer.cs
-# (remove the line above if you want to commit designer files)
 
-# Machine-local overrides
-appsettings.Production.json
+# Uncomment if you also want to ignore snapshots
+# **/Migrations/*ModelSnapshot.cs
+
+# =============================================================================
+# ASP.NET Core / Config
+# =============================================================================
+
+# Environment-specific configs
+appsettings.Development.json
 appsettings.Staging.json
+appsettings.Production.json
 appsettings.local.json
 appsettings.*.local.json
-appsettings
 
-# ── ML models & large data ───────────────────────────────────────────────────
-**/Models/*.zip
-SpotifySongs.csv
+# Secrets
+secrets.json
+*.pfx
+*.key
+*.pem
 
-# ── SQLite (local dev artefacts) ────────────────────────────────────────────
+# User secrets
+**/secrets/
+
+# =============================================================================
+# Environment Variables
+# =============================================================================
+.env
+.env.*
+!.env.example
+
+# =============================================================================
+# Databases / Local storage
+# =============================================================================
 *.db
+*.sqlite
+*.sqlite3
 *.db-shm
 *.db-wal
 
-# ── Node / Next.js ───────────────────────────────────────────────────────────
+# =============================================================================
+# ML / AI / Large files
+# =============================================================================
+**/Models/
+**/*.onnx
+**/*.pt
+**/*.pth
+**/*.ckpt
+**/*.bin
+**/*.zip
+**/*.parquet
+
+# Datasets
+*.csv
+*.tsv
+*.xlsx
+
+# Keep sample datasets if needed
+!sample-data.csv
+
+# =============================================================================
+# Node.js / Frontend
+# =============================================================================
 node_modules/
+
+# Next.js
 .next/
 out/
-*.tsbuildinfo
+
+# Turborepo
 .turbo/
 
-# ── Environment / secrets ────────────────────────────────────────────────────
-.env
-.env.local
-.env.*.local
-# .env.example is committed intentionally
+# Vite
+dist/
+vite.svg
 
-# ── IDE / tooling ─────────────────────────────────────────────────────────────
-.claude/
-.dotnet/
-.vscode/
+# TypeScript
+*.tsbuildinfo
+
+# Package manager logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =============================================================================
+# IDEs / Editors
+# =============================================================================
+
+# VS Code
+.vscode/*
+
+# Allow shared VSCode settings if desired
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# JetBrains
 .idea/
 
-# ── OS cruft ─────────────────────────────────────────────────────────────────
+# Claude Code
+.claude/
+
+# Vim
+*.swp
+*.swo
+
+# =============================================================================
+# Docker
+# =============================================================================
+docker-compose.override.yml
+
+# =============================================================================
+# OS files
+# =============================================================================
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# =============================================================================
+# Temporary / cache
+# =============================================================================
+tmp/
+temp/
+.cache/
+
+# =============================================================================
+# Coverage
+# =============================================================================
+coverage/
+coverage-report/
+lcov.info
+
+# =============================================================================
+# Generated assets
+# =============================================================================
+wwwroot/generated/
+generated/
+
+# =============================================================================
+# Misc
+# =============================================================================
+*.bak
+*.tmp
+*.orig
