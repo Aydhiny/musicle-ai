@@ -4,9 +4,11 @@ import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { Users, Mic, Heart, MessageCircle, Play, Music, ArrowRight } from "lucide-react";
 
-// Pre-computed as integers so SSR and client produce identical strings (no float precision mismatch)
-const WAVEFORM_BARS = Array.from({ length: 60 }, (_, i) => Math.round(Math.abs(Math.sin(i * 0.15) * 60 + ((i * 17) % 20) + 10)));
-const SKETCH_BARS = Array.from({ length: 40 }, (_, i) => Math.round(30 + Math.abs(Math.sin(i * 0.2) * 40)));
+// 40 bars (fewer than 60) so the waveform fits on narrow screens without overflow.
+// Heights are pre-computed integers — SSR and client produce identical strings,
+// preventing the React hydration mismatch that caused the previous float-precision bug.
+const WAVEFORM_BARS = Array.from({ length: 40 }, (_, i) => Math.round(Math.abs(Math.sin(i * 0.2) * 65 + ((i * 13) % 20) + 15)));
+const SKETCH_BARS = Array.from({ length: 32 }, (_, i) => Math.round(30 + Math.abs(Math.sin(i * 0.25) * 40)));
 
 const MusicleFeedSection = () => {
   const [playingSketch, setPlayingSketch] = useState(null);
@@ -27,7 +29,7 @@ const MusicleFeedSection = () => {
   };
 
   return (
-    <div className="border bg-[#111111] p-8 mx-auto mt-24 sm:mt-32 px-6 sm:px-8">
+    <div className="border bg-[#111111] py-8 px-6 sm:px-8 mx-auto mt-16 sm:mt-24">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -183,14 +185,15 @@ const MusicleFeedSection = () => {
 
           {/* Waveform Visualization - Minimal */}
           <motion.div variants={item} className="relative h-32 border border-white/5 rounded-2xl bg-white/[0.02] overflow-hidden">
-            <div className="absolute inset-0 flex items-center justify-center gap-[2px] px-8">
+            <div className="absolute inset-0 flex items-end justify-center gap-[2px] px-8 pb-4">
               {WAVEFORM_BARS.map((height, i) => {
                 return (
                   <motion.div
                     key={i}
-                    className="w-1 bg-gradient-to-t from-blue-500 to-cyan-400 rounded-full"
-                    initial={{ height: 0 }}
-                    whileInView={{ height: `${height}%` }}
+                    className="w-1 bg-gradient-to-t from-blue-500 to-cyan-400 rounded-full origin-bottom"
+                    style={{ height: `${height}%` }}
+                    initial={{ scaleY: 0 }}
+                    whileInView={{ scaleY: 1 }}
                     viewport={{ once: true }}
                     transition={{
                       delay: i * 0.01,

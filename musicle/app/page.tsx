@@ -541,7 +541,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      <div className="bg-[#171717] w-fit mx-auto shadow-2xl p-12 border-t border-neutral-700">
+      <div className="bg-[#171717] w-full mx-auto shadow-2xl px-4 py-8 sm:px-8 sm:py-12 border-t border-neutral-700">
         <h1 className="text-3xl justify-center text-center items-center sm:text-4xl md:text-5xl font-bold tracking-tight bg-clip-text text-transparent bg-linear-to-b from-neutral-100 via-neutral-300 to-neutral-600">
           Features
         </h1>
@@ -553,8 +553,8 @@ export default function HomePage() {
       </div>
 
       {/* Waitlist Section */}
-      <div className="m-24">
-        <div className="relative h-160 border-t border-neutral-700 shadow-2xl w-full overflow-hidden rounded-sm bg-[#171717] flex items-center justify-center">
+      <div className="mx-4 my-10 sm:mx-8 sm:my-16 lg:mx-24">
+        <div className="relative min-h-[28rem] sm:min-h-[36rem] border-t border-neutral-700 shadow-2xl w-full overflow-hidden rounded-sm bg-[#171717] flex items-center justify-center">
           {/* Subtle background glow */}
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(168,85,247,0.18),transparent_50%)]" />
 

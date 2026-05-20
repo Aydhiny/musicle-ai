@@ -734,7 +734,7 @@ export default function MusicleFeedPage() {
                           </div>
                         </div>
 
-                        {post.analysis.audioUrl && (
+                        {post.analysis.audioUrl && !post.media?.some((m) => m.type === "audio") && (
                           <audio className="w-full mt-3" controls src={resolveMediaUrl(post.analysis.audioUrl)} />
                         )}
                       </div>
