@@ -92,18 +92,22 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+builder.Services.AddSingleton<MlLibrarySettings>();
+builder.Services.AddSingleton<MlMetricsStore>();
 builder.Services.AddSingleton<ISpotifyDatasetLoader, SpotifyDatasetLoader>();
 builder.Services.AddSingleton<CommercialScorePredictor>();
 builder.Services.AddSingleton<AudioFeatureLearner>();
 
 builder.Services.AddScoped<IGenreClassifier>(sp =>
 {
-    var logger = sp.GetRequiredService<ILogger<MLNetGenreClassifierWithFeedback>>();
-    var datasetLoader = sp.GetRequiredService<ISpotifyDatasetLoader>();
-    var db = sp.GetRequiredService<MusicAgentDbContext>();
-    var modelPath = Path.Combine(builder.Environment.ContentRootPath, "Models", "genre_model.zip");
+    var logger          = sp.GetRequiredService<ILogger<MLNetGenreClassifierWithFeedback>>();
+    var datasetLoader   = sp.GetRequiredService<ISpotifyDatasetLoader>();
+    var db              = sp.GetRequiredService<MusicAgentDbContext>();
+    var libSettings     = sp.GetRequiredService<MlLibrarySettings>();
+    var metricsStore    = sp.GetRequiredService<MlMetricsStore>();
+    var modelPath       = Path.Combine(builder.Environment.ContentRootPath, "Models", "genre_model.zip");
 
-    return new MLNetGenreClassifierWithFeedback(logger, datasetLoader, db, modelPath);
+    return new MLNetGenreClassifierWithFeedback(logger, datasetLoader, db, modelPath, libSettings, metricsStore);
 });
 
 builder.Services.AddScoped<AtomicQueueService>();

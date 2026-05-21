@@ -23,6 +23,8 @@ namespace AiAgents.MusicAgent.ML
         private readonly ILogger<MLNetGenreClassifierWithFeedback> _logger;
         private readonly ISpotifyDatasetLoader _datasetLoader;
         private readonly MusicAgentDbContext _db;
+        private readonly MlLibrarySettings _librarySettings;
+        private readonly MlMetricsStore _metricsStore;
         private ITransformer? _model;
         // Cached after Train() or first load — CreatePredictionEngine compiles the full
         // transformer pipeline; recreating it per request wastes significant CPU.
@@ -33,12 +35,16 @@ namespace AiAgents.MusicAgent.ML
             ILogger<MLNetGenreClassifierWithFeedback> logger,
             ISpotifyDatasetLoader datasetLoader,
             MusicAgentDbContext db,
-            string modelPath = "Models/genre_model.zip")
+            string modelPath = "Models/genre_model.zip",
+            MlLibrarySettings? librarySettings = null,
+            MlMetricsStore? metricsStore = null)
         {
             _mlContext = new MLContext(seed: 1);
             _logger = logger;
             _datasetLoader = datasetLoader;
             _db = db;
+            _librarySettings = librarySettings ?? new MlLibrarySettings();
+            _metricsStore = metricsStore ?? new MlMetricsStore();
             _modelPath = modelPath;
 
             Directory.CreateDirectory(Path.GetDirectoryName(_modelPath)!);
@@ -164,12 +170,15 @@ namespace AiAgents.MusicAgent.ML
             trainingData.AddRange(ambientSynth);
             _logger.LogInformation("➕ Added {Count} synthetic Ambient/Experimental examples", ambientSynth.Count);
 
-            // STEP 6: Train with LightGBM multiclass — handles mixed-scale features
-            // better than SDCA and is more robust to correlated inputs.
+            // STEP 6: Train multiclass classifier — trainer selected via MlLibrarySettings.
+            // LightGBM  = leaf-wise gradient boosting (fast, handles large datasets well).
+            // FastTree  = level-wise MART GBDT via One-vs-All (XGBoost-family; more
+            //             regularised, slightly better on smaller datasets).
+            var lib = _librarySettings.ActiveLibrary;
             var dataView = _mlContext.Data.LoadFromEnumerable(trainingData);
             var split = _mlContext.Data.TrainTestSplit(dataView, testFraction: 0.2);
 
-            var pipeline = _mlContext.Transforms.Conversion
+            var featureBlock = _mlContext.Transforms.Conversion
                 .MapValueToKey(nameof(GenreTrainingData.Label))
                 .Append(_mlContext.Transforms.Concatenate("Features",
                     // Raw Spotify / NAudio features (12)
@@ -191,16 +200,29 @@ namespace AiAgents.MusicAgent.ML
                     nameof(GenreTrainingData.AcousticInstrumental),  // classical detector
                     nameof(GenreTrainingData.SpeechEnergy),          // rap detector
                     nameof(GenreTrainingData.ValenceEnergy)))        // pop/EDM brightness detector
-                .Append(_mlContext.Transforms.NormalizeMinMax("Features"))
-                .Append(_mlContext.MulticlassClassification.Trainers.LightGbm(
-                    labelColumnName: "Label",
-                    featureColumnName: "Features",
-                    exampleWeightColumnName: nameof(GenreTrainingData.Weight),
-                    numberOfIterations: 500,
-                    learningRate: 0.05,
-                    numberOfLeaves: 50,
-                    minimumExampleCountPerLeaf: 5))   // prevents leaf nodes with <5 samples (overfitting guard)
-                .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
+                .Append(_mlContext.Transforms.NormalizeMinMax("Features"));
+
+            var pipeline = lib == MlLibrary.FastTree
+                ? featureBlock
+                    .Append(_mlContext.MulticlassClassification.Trainers.OneVersusAll(
+                        _mlContext.BinaryClassification.Trainers.FastTree(
+                            labelColumnName: "Label",
+                            featureColumnName: "Features",
+                            numberOfTrees: 300,
+                            numberOfLeaves: 50,
+                            learningRate: 0.05),
+                        labelColumnName: "Label"))
+                    .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"))
+                : featureBlock
+                    .Append(_mlContext.MulticlassClassification.Trainers.LightGbm(
+                        labelColumnName: "Label",
+                        featureColumnName: "Features",
+                        exampleWeightColumnName: nameof(GenreTrainingData.Weight),
+                        numberOfIterations: 500,
+                        learningRate: 0.05,
+                        numberOfLeaves: 50,
+                        minimumExampleCountPerLeaf: 5))   // prevents leaf nodes with <5 samples (overfitting guard)
+                    .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
 
             _logger.LogInformation("🔧 Training model with {Count} weighted samples...", trainingData.Count);
             var startTime = DateTime.UtcNow;
@@ -219,15 +241,16 @@ namespace AiAgents.MusicAgent.ML
             _logger.LogInformation("📉 Log-Loss: {LogLoss:F4}  (lower is better; <0.5 is good)", metrics.LogLoss);
 
             // Per-class precision and recall — this tells you WHICH genres are mispredicted.
-            // Precision = of everything the model called "Rock", how many were actually Rock?
-            // Recall    = of all real Rock tracks, how many did the model find?
             var cm = metrics.ConfusionMatrix;
             _logger.LogInformation("📊 Per-class performance (Precision / Recall):");
+            var perClass = new Dictionary<string, ClassMetrics>();
             for (int i = 0; i < cm.NumberOfClasses; i++)
             {
                 double prec = cm.PerClassPrecision.Count > i ? cm.PerClassPrecision[i] : 0;
                 double rec  = cm.PerClassRecall.Count  > i ? cm.PerClassRecall[i]  : 0;
                 double f1   = (prec + rec) > 0 ? 2 * prec * rec / (prec + rec) : 0;
+                perClass[$"Class {i}"] = new ClassMetrics(
+                    Math.Round(prec, 3), Math.Round(rec, 3), Math.Round(f1, 3));
                 _logger.LogInformation("    Class {Idx}: Precision={Prec:P1}  Recall={Rec:P1}  F1={F1:P1}",
                     i, prec, rec, f1);
             }
@@ -237,7 +260,43 @@ namespace AiAgents.MusicAgent.ML
             _logger.LogInformation("💾 Model saved to {Path}", _modelPath);
             _predictionEngine = _mlContext.Model.CreatePredictionEngine<GenreTrainingData, GenrePredictionOutput>(_model);
 
-            // STEP 8: Mark feedback as used in training
+            // STEP 8: Publish metrics to the store for the ML dashboard
+            _metricsStore.Upsert(new ModelSnapshot
+            {
+                Name            = "Genre Classifier",
+                ActiveLibrary   = lib.ToString(),
+                IsReady         = true,
+                Accuracy        = Math.Round(metrics.MacroAccuracy, 4),
+                MacroF1         = Math.Round(metrics.MacroAccuracy, 4),
+                LogLoss         = Math.Round(metrics.LogLoss, 4),
+                TrainingSamples = trainingData.Count,
+                TrainedAt       = DateTimeOffset.UtcNow,
+                PerClassMetrics = perClass,
+                InputFeatures   =
+                [
+                    "Tempo", "Energy", "Danceability", "Valence", "Acousticness",
+                    "Loudness", "Speechiness", "Instrumentalness", "Liveness",
+                    "Popularity", "SpectralCentroid", "ZeroCrossingRate",
+                    "Energy×Danceability (interaction)", "Acoustic×Instrumental (interaction)",
+                    "Speech×Energy (interaction)", "Valence×Energy (interaction)"
+                ],
+                OutputTargets   = ["Genre (12 classes)"],
+                Description     =
+                    "16-feature multiclass classifier that maps audio characteristics to genre. " +
+                    "Trained on cleaned Spotify data plus user feedback corrections (3× weighted). " +
+                    "Synthetic ambient examples are injected to cover test tones and binaural beats " +
+                    "that never appear in Spotify. User corrections retrain the model automatically.",
+                ExpansionTips   =
+                [
+                    "Import MusicBrainz genre tags to replace heuristic Spotify labels with ground-truth.",
+                    "Add subgenre prediction as a second output head (e.g. 'Hip-Hop → Trap').",
+                    "Add MFCC and chroma features from NAudio to give the model richer spectral info.",
+                    "Implement active learning: low-confidence predictions go into a review queue for user correction.",
+                    "Use cross-validation (5-fold) instead of a single 80/20 split for more stable accuracy estimates."
+                ]
+            });
+
+            // STEP 9: Mark feedback as used in training
             await MarkFeedbackAsUsedAsync(ct);
 
             return new ModelMetrics

@@ -24,6 +24,10 @@ const navItems = [
     link: "/sketchbook",
   },
   {
+    name: "ML",
+    link: "/ml",
+  },
+  {
     name: "Pricing",
     link: "/pricing",
   },
