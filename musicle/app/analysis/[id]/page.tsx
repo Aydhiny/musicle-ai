@@ -16,7 +16,9 @@ import {
   AlertCircle,
   Play,
   Pause,
+  PieChart,
 } from "lucide-react";
+import { GenreProbabilityBars } from "@/components/GenreProbabilityBars";
 import { resolveApiUrl } from "@/lib/api-url";
 
 interface AnalysisData {
@@ -45,6 +47,7 @@ interface AnalysisData {
     };
     strengths: string[];
     improvements: string[];
+    genreProbabilities?: Record<string, number>;
     analyzedAt: string;
   };
 }
@@ -313,6 +316,19 @@ export default function AnalysisPage() {
                 </div>
               </div>
             </div>
+
+            {a.genreProbabilities && Object.keys(a.genreProbabilities).length > 1 && (
+              <div className="bg-[#121212] border border-purple-500/20 rounded-2xl p-6">
+                <h3 className="font-bold mb-4 text-sm text-gray-400 flex items-center gap-2">
+                  <PieChart className="w-4 h-4" />
+                  GENRE PROBABILITY DISTRIBUTION
+                </h3>
+                <GenreProbabilityBars
+                  probabilities={a.genreProbabilities}
+                  predictedGenre={a.genre}
+                />
+              </div>
+            )}
 
             <div className="bg-[#121212] border border-purple-500/20 rounded-2xl p-8">
               <h3 className="font-bold mb-6 text-sm text-gray-400 flex items-center gap-2">
