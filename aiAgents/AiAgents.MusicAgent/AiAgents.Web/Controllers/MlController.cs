@@ -3,6 +3,7 @@ using AiAgents.MusicAgent.ML;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -170,6 +171,105 @@ namespace AiAgents.Web.Controllers
         }
 
         /// <summary>
+        /// Explains why a track was predicted as a given genre.
+        ///
+        /// Method: for each feature, compares the track's value to the known
+        /// genre fingerprint (derived from ANOVA importance + typical feature ranges).
+        /// Returns supporting evidence ("why this genre") and competing signals
+        /// ("what almost made it another genre").
+        /// </summary>
+        [HttpPost("explain")]
+        public IActionResult Explain([FromBody] ExplainRequest req)
+        {
+            var importanceSnapshot = _metricsStore.Get("Genre Classifier");
+            var featureImportance  = importanceSnapshot?.FeatureImportance
+                                     ?? new Dictionary<string, double>();
+
+            // Genre fingerprints: for each genre, which features are typically high/low.
+            // Derived from the training heuristics and known musicological patterns.
+            var fingerprints = new Dictionary<string, Dictionary<string, string>>
+            {
+                ["Electronic/Dance"] = new() { ["Energy"] = "high", ["Danceability"] = "high", ["Acousticness"] = "low",  ["Speechiness"] = "low"  },
+                ["Hip-Hop/Rap"]      = new() { ["Speechiness"] = "high", ["Energy"] = "moderate", ["Danceability"] = "high", ["Acousticness"] = "low" },
+                ["Pop"]              = new() { ["Valence"] = "high", ["Danceability"] = "moderate", ["Energy"] = "moderate", ["Acousticness"] = "low" },
+                ["Rock"]             = new() { ["Energy"] = "high", ["Acousticness"] = "low", ["Speechiness"] = "low", ["Instrumentalness"] = "low" },
+                ["Acoustic/Folk"]    = new() { ["Acousticness"] = "high", ["Energy"] = "low", ["Instrumentalness"] = "moderate", ["Speechiness"] = "low" },
+                ["R&B/Soul"]         = new() { ["Danceability"] = "high", ["Energy"] = "moderate", ["Valence"] = "moderate", ["Speechiness"] = "low" },
+                ["Indie/Alternative"]= new() { ["Energy"] = "moderate", ["Acousticness"] = "moderate", ["Valence"] = "low", ["Danceability"] = "moderate" },
+                ["Classical/Ambient"]= new() { ["Instrumentalness"] = "high", ["Acousticness"] = "high", ["Energy"] = "low", ["Speechiness"] = "low" },
+                ["Ambient/Experimental"] = new() { ["Instrumentalness"] = "high", ["Energy"] = "low", ["Speechiness"] = "low" },
+            };
+
+            var trackValues = new Dictionary<string, double>
+            {
+                ["Energy"]           = req.Energy,
+                ["Danceability"]     = req.Danceability,
+                ["Valence"]          = req.Valence,
+                ["Acousticness"]     = req.Acousticness,
+                ["Speechiness"]      = req.Speechiness,
+                ["Instrumentalness"] = req.Instrumentalness,
+                ["Tempo (norm)"]     = req.Tempo / 220.0,
+                ["Loudness (norm)"]  = (req.Loudness + 60.0) / 60.0,
+                ["SpectralCentroid"] = req.SpectralCentroid / 4000.0,
+            };
+
+            // Threshold helpers
+            bool IsHigh(double v)     => v >= 0.65;
+            bool IsModerate(double v) => v >= 0.35 && v < 0.65;
+            bool IsLow(double v)      => v < 0.35;
+
+            var fingerprint = fingerprints.GetValueOrDefault(req.PredictedGenre, new Dictionary<string, string>());
+
+            var supportingFeatures = new List<object>();
+            var competingSignals   = new List<object>();
+
+            foreach (var (feat, expected) in fingerprint)
+            {
+                if (!trackValues.TryGetValue(feat, out var val)) continue;
+                var importance = featureImportance.TryGetValue(feat, out var imp) ? imp : 0;
+
+                bool matches = expected switch
+                {
+                    "high"     => IsHigh(val),
+                    "moderate" => IsModerate(val),
+                    "low"      => IsLow(val),
+                    _          => false
+                };
+
+                var entry = new
+                {
+                    feature   = feat,
+                    value     = Math.Round(val, 3),
+                    expected,
+                    matches,
+                    importance = Math.Round(importance, 1),
+                    interpretation = matches
+                        ? $"{feat} is {expected} ({val:P0}) — typical for {req.PredictedGenre}"
+                        : $"{feat} is {(IsHigh(val) ? "high" : IsLow(val) ? "low" : "moderate")} ({val:P0}) — less typical; {expected} expected for {req.PredictedGenre}"
+                };
+
+                if (matches) supportingFeatures.Add(entry);
+                else         competingSignals.Add(entry);
+            }
+
+            // Sort by importance descending
+            supportingFeatures.Sort((a, b) =>
+                ((double)((dynamic)b).importance).CompareTo((double)((dynamic)a).importance));
+            competingSignals.Sort((a, b) =>
+                ((double)((dynamic)b).importance).CompareTo((double)((dynamic)a).importance));
+
+            return Ok(new
+            {
+                predictedGenre     = req.PredictedGenre,
+                supportingFeatures = supportingFeatures.Take(4),
+                competingSignals   = competingSignals.Take(3),
+                explanation        = $"The model classified this track as {req.PredictedGenre} primarily " +
+                                     $"based on {(supportingFeatures.Count > 0 ? ((dynamic)supportingFeatures[0]).feature : "audio features")} " +
+                                     $"and {supportingFeatures.Count} other matching signals."
+            });
+        }
+
+        /// <summary>
         /// Switch the active ML library and retrain all three models.
         /// Training runs synchronously — allow 15–60 s depending on dataset size.
         /// </summary>
@@ -237,4 +337,20 @@ namespace AiAgents.Web.Controllers
     }
 
     public record SwitchLibraryRequest(string Library);
+
+    /// <summary>
+    /// Input for the /explain endpoint — the audio features of a track to be explained.
+    /// </summary>
+    public record ExplainRequest(
+        string PredictedGenre,
+        double Energy,
+        double Danceability,
+        double Valence,
+        double Acousticness,
+        double Speechiness,
+        double Instrumentalness,
+        double Tempo,
+        double Loudness,
+        double SpectralCentroid,
+        double ZeroCrossingRate);
 }
