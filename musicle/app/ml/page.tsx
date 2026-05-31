@@ -27,6 +27,8 @@ import { FeatureImportanceChart } from "@/components/FeatureImportanceChart";
 import { ConfusionMatrixHeatmap } from "@/components/ConfusionMatrixHeatmap";
 import { ClusterPanel } from "@/components/ClusterPanel";
 import { TrainingHistoryChart } from "@/components/TrainingHistoryChart";
+import { CorrelationHeatmap } from "@/components/CorrelationHeatmap";
+import { CrossValidationPanel } from "@/components/CrossValidationPanel";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -97,6 +99,26 @@ interface TrainingRun {
   samples: number;
 }
 
+interface CorrelationResponse {
+  ready: boolean;
+  features?: string[];
+  matrix?: number[][];
+  sampleSize?: number;
+}
+
+interface CvCachedResponse {
+  ready: boolean;
+  result?: {
+    folds: number;
+    foldAccuracies: number[];
+    meanAccuracy: number;
+    stdAccuracy: number;
+    meanLogLoss: number;
+    trainingSamples: number;
+    computedAt: string;
+  };
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function MetricBadge({ label, value, unit = "" }: { label: string; value?: number | null; unit?: string }) {
@@ -133,6 +155,8 @@ export default function MlDashboardPage() {
   const [confMatrix, setConfMatrix]     = useState<ConfusionMatrixResponse | null>(null);
   const [clusters, setClusters]         = useState<ClusteringSnapshot | null>(null);
   const [history, setHistory]           = useState<TrainingRun[]>([]);
+  const [correlations, setCorrelations] = useState<CorrelationResponse | null>(null);
+  const [cvData, setCvData]             = useState<CvCachedResponse | null>(null);
   const [loading, setLoading]           = useState(true);
   const [switching, setSwitching]       = useState(false);
   const [retraining, setRetraining]     = useState(false);
@@ -146,12 +170,14 @@ export default function MlDashboardPage() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [statusRes, impRes, matRes, clusterRes, histRes] = await Promise.all([
+      const [statusRes, impRes, matRes, clusterRes, histRes, corrRes, cvRes] = await Promise.all([
         fetch(apiUrl("/api/ml/status")),
         fetch(apiUrl("/api/ml/feature-importance")),
         fetch(apiUrl("/api/ml/confusion-matrix")),
         fetch(apiUrl("/api/ml/clusters?k=8")),
         fetch(apiUrl("/api/ml/training-history")),
+        fetch(apiUrl("/api/ml/correlations")),
+        fetch(apiUrl("/api/ml/cross-validate")),
       ]);
 
       if (statusRes.ok)  setStatus(await statusRes.json());
@@ -159,6 +185,8 @@ export default function MlDashboardPage() {
       if (matRes.ok)     setConfMatrix(await matRes.json());
       if (clusterRes.ok) setClusters(await clusterRes.json());
       if (histRes.ok)    setHistory((await histRes.json()).runs ?? []);
+      if (corrRes.ok)    setCorrelations(await corrRes.json());
+      if (cvRes.ok)      setCvData(await cvRes.json());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load ML data");
     } finally {
@@ -220,12 +248,14 @@ export default function MlDashboardPage() {
   const isBusy = switching || retraining;
 
   const TABS = [
-    { id: "models",    label: "Models",        icon: Layers },
-    { id: "importance",label: "Feature Imp.",   icon: BarChart3 },
-    { id: "matrix",    label: "Confusion",      icon: Grid3x3 },
-    { id: "clusters",  label: "Clusters",       icon: Network },
-    { id: "history",   label: "History",        icon: History },
-  ] as const;
+    { id: "models",       label: "Models",      icon: Layers },
+    { id: "importance",   label: "Feature Imp.", icon: BarChart3 },
+    { id: "matrix",       label: "Confusion",   icon: Grid3x3 },
+    { id: "clusters",     label: "Clusters",    icon: Network },
+    { id: "correlations", label: "Correlations",icon: TrendingUp },
+    { id: "cv",           label: "Cross-Val",   icon: RefreshCw },
+    { id: "history",      label: "History",     icon: History },
+  ];
 
   return (
     <div className="min-h-screen text-white mt-20" style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
@@ -561,6 +591,42 @@ export default function MlDashboardPage() {
                 ) : (
                   <p className="text-sm text-white/40 text-center py-8">Loading clusters…</p>
                 )}
+              </div>
+            )}
+
+            {/* ── Correlations Tab ── */}
+            {activeTab === "correlations" && (
+              <div className="bg-white/3 border border-white/8 rounded-2xl p-6 space-y-4">
+                <div>
+                  <h2 className="text-base font-semibold text-white mb-1">Feature Correlation Matrix</h2>
+                  <p className="text-xs text-white/50 leading-relaxed">
+                    Pearson correlation r ∈ [−1,+1] between every pair of audio features in the Spotify dataset.
+                    Strong positive correlations (blue) mean features carry similar information — important for
+                    understanding multicollinearity, which can affect model stability.
+                    Strong negatives (red) mean features are inversely related (e.g. Acousticness ↔ Energy).
+                  </p>
+                </div>
+                {correlations?.ready && correlations.features && correlations.matrix ? (
+                  <CorrelationHeatmap
+                    features={correlations.features}
+                    matrix={correlations.matrix}
+                    sampleSize={correlations.sampleSize}
+                  />
+                ) : (
+                  <p className="text-sm text-white/40 text-center py-8">
+                    Loading correlation matrix…
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* ── Cross-Validation Tab ── */}
+            {activeTab === "cv" && (
+              <div className="bg-white/3 border border-white/8 rounded-2xl p-6 space-y-4">
+                <div>
+                  <h2 className="text-base font-semibold text-white mb-1">k-Fold Cross-Validation</h2>
+                </div>
+                <CrossValidationPanel initial={cvData?.result ?? null} />
               </div>
             )}
 

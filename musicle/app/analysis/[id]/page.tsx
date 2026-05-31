@@ -20,9 +20,13 @@ import {
   Lightbulb,
   CheckCircle2,
   XCircle,
+  Users,
+  Activity,
 } from "lucide-react";
 import { resolveApiUrl } from "@/lib/api-url";
 import { GenreProbabilityBars } from "@/components/GenreProbabilityBars";
+import { KNNSimilarPanel } from "@/components/KNNSimilarPanel";
+import { AnomalyBadge } from "@/components/AnomalyBadge";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,6 +80,27 @@ interface ExplainData {
   explanation: string;
 }
 
+interface SimilarTrack {
+  rank: number;
+  songName: string;
+  artistName: string;
+  popularity: number;
+  distance: number;
+  similarityPct: number;
+  features: Record<string, number>;
+  featureDeltas: Record<string, number>;
+}
+
+interface AnomalyResult {
+  anomalyScore: number;
+  isAnomaly: boolean;
+  zScore: number;
+  nearestClusterGenre: string;
+  distanceToCentroid: number;
+  avgClusterDistance: number;
+  interpretation: string;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatTime(s: number) {
@@ -95,9 +120,11 @@ export default function AnalysisPage() {
   const router    = useRouter();
   const trackId   = params?.id as string | undefined;
 
-  const [data, setData]         = useState<AnalysisData | null>(null);
-  const [explain, setExplain]   = useState<ExplainData | null>(null);
-  const [loading, setLoading]   = useState(true);
+  const [data, setData]           = useState<AnalysisData | null>(null);
+  const [explain, setExplain]     = useState<ExplainData | null>(null);
+  const [similar, setSimilar]     = useState<SimilarTrack[]>([]);
+  const [anomaly, setAnomaly]     = useState<AnomalyResult | null>(null);
+  const [loading, setLoading]     = useState(true);
   const [error, setError]       = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -130,37 +157,54 @@ export default function AnalysisPage() {
     void fetchData();
   }, [trackId]);
 
-  // Fetch explainability once analysis is loaded
-  const fetchExplain = useCallback(async (analysis: NonNullable<AnalysisData["analysis"]>, c: Characteristics) => {
-    try {
-      const res = await fetch(resolveApiUrl("/api/ml/explain"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          predictedGenre:  analysis.genre,
-          energy:          c.energy,
-          danceability:    c.danceability,
-          valence:         c.valence,
-          acousticness:    c.acousticness,
-          speechiness:     c.speechiness,
-          instrumentalness:c.instrumentalness,
-          tempo:           c.tempo,
-          loudness:        c.loudness,
-          spectralCentroid:c.spectralCentroid ?? 2000,
-          zeroCrossingRate:c.zeroCrossingRate ?? 0.1,
-        }),
-      });
-      if (res.ok) setExplain(await res.json());
-    } catch {
-      // Explainability is non-critical
-    }
-  }, []);
-
+  // Fetch all secondary ML data once the main analysis arrives
   useEffect(() => {
-    if (data?.analysis) {
-      void fetchExplain(data.analysis, data.analysis.characteristics);
-    }
-  }, [data, fetchExplain]);
+    if (!data?.analysis || !trackId) return;
+    const a = data.analysis;
+    const c = a.characteristics;
+
+    // Explainability
+    void (async () => {
+      try {
+        const res = await fetch(resolveApiUrl("/api/ml/explain"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            predictedGenre:  a.genre,
+            energy: c.energy, danceability: c.danceability,
+            valence: c.valence, acousticness: c.acousticness,
+            speechiness: c.speechiness, instrumentalness: c.instrumentalness,
+            tempo: c.tempo, loudness: c.loudness,
+            spectralCentroid: c.spectralCentroid ?? 2000,
+            zeroCrossingRate: c.zeroCrossingRate ?? 0.1,
+          }),
+        });
+        if (res.ok) setExplain(await res.json());
+      } catch { /* non-critical */ }
+    })();
+
+    // KNN similar tracks
+    void (async () => {
+      try {
+        const res = await fetch(resolveApiUrl(`/api/analysis/${trackId}/similar?k=5`));
+        if (res.ok) {
+          const json = await res.json();
+          setSimilar(json.results ?? []);
+        }
+      } catch { /* non-critical */ }
+    })();
+
+    // Anomaly detection
+    void (async () => {
+      try {
+        const res = await fetch(resolveApiUrl(`/api/analysis/${trackId}/anomaly`));
+        if (res.ok) {
+          const json = await res.json();
+          if (json.ready) setAnomaly(json.result);
+        }
+      } catch { /* non-critical */ }
+    })();
+  }, [data, trackId]);
 
   // Audio player event wiring
   useEffect(() => {
@@ -420,6 +464,26 @@ export default function AnalysisPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Anomaly detection */}
+            {anomaly && (
+              <div className="bg-[#121212] border border-purple-500/20 rounded-2xl p-5">
+                <h3 className="font-semibold mb-3 text-xs text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                  <Activity className="w-4 h-4" /> Anomaly Detection
+                </h3>
+                <AnomalyBadge result={anomaly} />
+              </div>
+            )}
+
+            {/* KNN similar tracks */}
+            {similar.length > 0 && (
+              <div className="bg-[#121212] border border-purple-500/20 rounded-2xl p-5">
+                <h3 className="font-semibold mb-3 text-xs text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                  <Users className="w-4 h-4" /> Similar Tracks (KNN)
+                </h3>
+                <KNNSimilarPanel tracks={similar} genre={a.genre} />
               </div>
             )}
           </div>
