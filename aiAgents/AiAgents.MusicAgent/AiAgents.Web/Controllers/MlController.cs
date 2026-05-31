@@ -21,6 +21,8 @@ namespace AiAgents.Web.Controllers
         private readonly CommercialScorePredictor _commercialPredictor;
         private readonly ISpotifyDatasetLoader _datasetLoader;
         private readonly KMeansClusteringService _kMeans;
+        private readonly FeatureCorrelationService _correlations;
+        private readonly CrossValidationService _crossValidation;
         private readonly ILogger<MlController> _logger;
 
         public MlController(
@@ -31,16 +33,20 @@ namespace AiAgents.Web.Controllers
             CommercialScorePredictor commercialPredictor,
             ISpotifyDatasetLoader datasetLoader,
             KMeansClusteringService kMeans,
+            FeatureCorrelationService correlations,
+            CrossValidationService crossValidation,
             ILogger<MlController> logger)
         {
-            _librarySettings     = librarySettings;
-            _metricsStore        = metricsStore;
-            _genreClassifier     = genreClassifier;
-            _featureLearner      = featureLearner;
+            _librarySettings  = librarySettings;
+            _metricsStore     = metricsStore;
+            _genreClassifier  = genreClassifier;
+            _featureLearner   = featureLearner;
             _commercialPredictor = commercialPredictor;
-            _datasetLoader       = datasetLoader;
-            _kMeans              = kMeans;
-            _logger              = logger;
+            _datasetLoader    = datasetLoader;
+            _kMeans           = kMeans;
+            _correlations     = correlations;
+            _crossValidation  = crossValidation;
+            _logger           = logger;
         }
 
         /// <summary>
@@ -168,6 +174,77 @@ namespace AiAgents.Web.Controllers
 
             var snapshot = _kMeans.Cluster(dataset, k);
             return Ok(snapshot);
+        }
+
+        /// <summary>
+        /// Returns the Pearson correlation matrix over the Spotify dataset's audio features.
+        /// Computed at startup; re-computed when the dataset changes.
+        /// </summary>
+        [HttpGet("correlations")]
+        public IActionResult GetCorrelations()
+        {
+            var snapshot = _metricsStore.GetCorrelations();
+            if (snapshot == null)
+            {
+                // Compute on demand if startup computation hasn't finished yet
+                try
+                {
+                    snapshot = _correlations.GetOrCompute();
+                }
+                catch (Exception ex)
+                {
+                    return BadRequest(new { error = ex.Message });
+                }
+            }
+
+            return Ok(new
+            {
+                ready      = true,
+                features   = snapshot.Features,
+                matrix     = snapshot.Matrix,
+                sampleSize = snapshot.SampleSize,
+                computedAt = snapshot.ComputedAt,
+                description = "Pearson correlation matrix r[i][j] ∈ [−1,+1]. " +
+                              "r close to +1 = highly positively correlated; −1 = negatively correlated; 0 = no linear relationship."
+            });
+        }
+
+        /// <summary>
+        /// Runs k-fold cross-validation on the genre classifier and returns per-fold metrics.
+        /// CPU-bound: allow 30–120 s. Results are cached until the next call.
+        /// </summary>
+        [HttpPost("cross-validate")]
+        public async Task<IActionResult> CrossValidate([FromQuery] int folds = 5, CancellationToken ct = default)
+        {
+            var dataset = _datasetLoader.GetCachedDataset();
+            if (dataset.Count == 0)
+                return BadRequest(new { error = "Dataset not loaded." });
+
+            CrossValidationResult result;
+            try
+            {
+                result = await Task.Run(() => _crossValidation.Run(folds), ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Cross-validation failed");
+                return StatusCode(500, new { error = ex.Message });
+            }
+
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// Returns the cached cross-validation result without re-running.
+        /// </summary>
+        [HttpGet("cross-validate")]
+        public IActionResult GetCrossValidation()
+        {
+            var result = _metricsStore.GetCrossValidation();
+            if (result == null)
+                return Ok(new { ready = false, message = "No cross-validation run yet. POST to /api/ml/cross-validate to trigger one." });
+
+            return Ok(new { ready = true, result });
         }
 
         /// <summary>

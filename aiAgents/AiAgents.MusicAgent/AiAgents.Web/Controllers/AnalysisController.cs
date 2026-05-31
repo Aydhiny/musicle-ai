@@ -26,11 +26,19 @@ namespace AiAgents.MusicAgent.Web.Controllers
     {
         private readonly MusicAgentDbContext _db;
         private readonly ILogger<AnalysisController> _logger;
+        private readonly AiAgents.MusicAgent.ML.KNNSimilarityService _knn;
+        private readonly AiAgents.MusicAgent.ML.AnomalyDetectionService _anomaly;
 
-        public AnalysisController(MusicAgentDbContext db, ILogger<AnalysisController> logger)
+        public AnalysisController(
+            MusicAgentDbContext db,
+            ILogger<AnalysisController> logger,
+            AiAgents.MusicAgent.ML.KNNSimilarityService knn,
+            AiAgents.MusicAgent.ML.AnomalyDetectionService anomaly)
         {
-            _db = db;
-            _logger = logger;
+            _db      = db;
+            _logger  = logger;
+            _knn     = knn;
+            _anomaly = anomaly;
         }
 
         [HttpPost("upload")]
@@ -350,6 +358,82 @@ namespace AiAgents.MusicAgent.Web.Controllers
 
             var timeline = await BuildTimelineAsync(trackId, ct);
             return Ok(new { timeline });
+        }
+
+        /// <summary>
+        /// Returns the k nearest Spotify tracks to this track using KNN in the 8-D audio feature space.
+        /// Results include Euclidean distance and per-feature deltas so the frontend can highlight
+        /// which dimensions drove the match.
+        /// </summary>
+        [AllowAnonymous]
+        [HttpGet("{trackId:guid}/similar")]
+        public async Task<IActionResult> GetSimilarTracks(Guid trackId, [FromQuery] int k = 5, CancellationToken ct = default)
+        {
+            var track = await _db.Tracks
+                .AsNoTracking()
+                .Include(t => t.Analysis)
+                .FirstOrDefaultAsync(t => t.Id == trackId, ct);
+
+            if (track?.Analysis == null)
+                return NotFound(new { error = "Analysis not found for this track." });
+
+            AiAgents.MusicAgent.Domain.Entities.Characteristics? chars = null;
+            try
+            {
+                if (!string.IsNullOrEmpty(track.Analysis.CharacteristicsJson))
+                    chars = System.Text.Json.JsonSerializer
+                        .Deserialize<AiAgents.MusicAgent.Domain.Entities.Characteristics>(
+                            track.Analysis.CharacteristicsJson);
+            }
+            catch { /* handled below */ }
+
+            if (chars == null)
+                return BadRequest(new { error = "Characteristics not yet computed for this track." });
+
+            var similar = _knn.FindSimilar(chars, k);
+            return Ok(new
+            {
+                trackId = trackId,
+                genre   = track.Analysis.Genre,
+                k       = similar.Count,
+                results = similar
+            });
+        }
+
+        /// <summary>
+        /// Scores this track for anomalousness relative to the K-Means cluster landscape.
+        /// Uses z-score against the nearest cluster's intra-cluster distance distribution.
+        /// </summary>
+        [AllowAnonymous]
+        [HttpGet("{trackId:guid}/anomaly")]
+        public async Task<IActionResult> GetAnomalyScore(Guid trackId, CancellationToken ct)
+        {
+            var track = await _db.Tracks
+                .AsNoTracking()
+                .Include(t => t.Analysis)
+                .FirstOrDefaultAsync(t => t.Id == trackId, ct);
+
+            if (track?.Analysis == null)
+                return NotFound(new { error = "Analysis not found for this track." });
+
+            AiAgents.MusicAgent.Domain.Entities.Characteristics? chars = null;
+            try
+            {
+                if (!string.IsNullOrEmpty(track.Analysis.CharacteristicsJson))
+                    chars = System.Text.Json.JsonSerializer
+                        .Deserialize<AiAgents.MusicAgent.Domain.Entities.Characteristics>(
+                            track.Analysis.CharacteristicsJson);
+            }
+            catch { /* handled below */ }
+
+            if (chars == null)
+                return BadRequest(new { error = "Characteristics not yet computed for this track." });
+
+            var result = _anomaly.Score(chars);
+            if (result == null)
+                return Ok(new { ready = false, message = "Anomaly detection requires K-Means to be trained first. Trigger a retrain." });
+
+            return Ok(new { ready = true, trackId, result });
         }
 
         [HttpDelete("{trackId}")]

@@ -98,6 +98,10 @@ builder.Services.AddSingleton<ISpotifyDatasetLoader, SpotifyDatasetLoader>();
 builder.Services.AddSingleton<CommercialScorePredictor>();
 builder.Services.AddSingleton<AudioFeatureLearner>();
 builder.Services.AddSingleton<KMeansClusteringService>();
+builder.Services.AddSingleton<KNNSimilarityService>();
+builder.Services.AddSingleton<AnomalyDetectionService>();
+builder.Services.AddSingleton<FeatureCorrelationService>();
+builder.Services.AddSingleton<CrossValidationService>();
 
 builder.Services.AddScoped<IGenreClassifier>(sp =>
 {
@@ -210,10 +214,12 @@ using (var scope = app.Services.CreateScope())
                 logger.LogInformation("Existing model found at: {Path}", modelPath);
             }
 
-            // K-Means clustering — runs after dataset load, independent of classifier training.
-            // Provides the unsupervised learning view of the music feature space.
-            var kMeans = services.GetRequiredService<KMeansClusteringService>();
-            await Task.Run(() => kMeans.Cluster(dataset, k: 8));
+            // K-Means clustering + Feature Correlations run in parallel after dataset load.
+            var kMeans       = services.GetRequiredService<KMeansClusteringService>();
+            var correlations = services.GetRequiredService<FeatureCorrelationService>();
+            await Task.WhenAll(
+                Task.Run(() => kMeans.Cluster(dataset, k: 8)),
+                Task.Run(() => correlations.Compute()));
         }
         else
         {

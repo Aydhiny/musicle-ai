@@ -70,7 +70,23 @@ namespace AiAgents.MusicAgent.ML
         int ClusterId,
         int Size,
         string DominantGenre,
-        IReadOnlyDictionary<string, double> Centroid);
+        IReadOnlyDictionary<string, double> Centroid,
+        /// <summary>
+        /// Mean Euclidean distance from cluster members to their centroid.
+        /// Used by AnomalyDetectionService to z-score a new point's distance.
+        /// </summary>
+        double AvgIntraClusterDistance,
+        double StdIntraClusterDistance);
+
+    /// <summary>Summary of one k-fold cross-validation run on the genre classifier.</summary>
+    public record CrossValidationResult(
+        int Folds,
+        IReadOnlyList<double> FoldAccuracies,
+        double MeanAccuracy,
+        double StdAccuracy,
+        double MeanLogLoss,
+        int TrainingSamples,
+        DateTimeOffset ComputedAt);
 
     /// <summary>
     /// Singleton write-through cache of per-model training results.
@@ -105,5 +121,30 @@ namespace AiAgents.MusicAgent.ML
             _clustering = snapshot;
 
         public ClusteringSnapshot? GetClustering() => _clustering;
+
+        // ── Cross-validation ─────────────────────────────────────────────────
+
+        private volatile CrossValidationResult? _cvResult;
+
+        public void SetCrossValidation(CrossValidationResult result) =>
+            _cvResult = result;
+
+        public CrossValidationResult? GetCrossValidation() => _cvResult;
+
+        // ── Feature correlation matrix ───────────────────────────────────────
+
+        private volatile FeatureCorrelationSnapshot? _correlations;
+
+        public void SetCorrelations(FeatureCorrelationSnapshot snapshot) =>
+            _correlations = snapshot;
+
+        public FeatureCorrelationSnapshot? GetCorrelations() => _correlations;
     }
+
+    /// <summary>Pearson correlation matrix over audio features from the Spotify dataset.</summary>
+    public record FeatureCorrelationSnapshot(
+        IReadOnlyList<string> Features,
+        IReadOnlyList<IReadOnlyList<double>> Matrix,
+        int SampleSize,
+        DateTimeOffset ComputedAt);
 }

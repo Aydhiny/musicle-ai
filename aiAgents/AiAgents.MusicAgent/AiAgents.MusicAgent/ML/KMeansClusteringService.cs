@@ -20,8 +20,8 @@ namespace AiAgents.MusicAgent.ML
         private readonly ILogger<KMeansClusteringService> _logger;
         private readonly MlMetricsStore _metricsStore;
 
-        // Feature names in the order used by the feature vector
-        private static readonly string[] FeatureNames =
+        // Feature names in the order used by the feature vector (public for reuse by KNN/Anomaly services)
+        public static readonly string[] FeatureNames =
         [
             "Energy", "Danceability", "Valence", "Acousticness",
             "Speechiness", "Instrumentalness", "Tempo (norm)", "Loudness (norm)"
@@ -169,7 +169,8 @@ namespace AiAgents.MusicAgent.ML
 
         // ── Feature extraction ───────────────────────────────────────────────────
 
-        private static double[] ToFeatureVector(SpotifyTrackData t) =>
+        /// <summary>Public so KNNSimilarityService and AnomalyDetectionService can reuse the same feature space.</summary>
+        public static double[] ToFeatureVector(SpotifyTrackData t) =>
         [
             t.Energy,
             t.Danceability,
@@ -179,6 +180,19 @@ namespace AiAgents.MusicAgent.ML
             t.Instrumentalness,
             Math.Clamp(t.Tempo / 220.0, 0, 1),
             Math.Clamp((t.Loudness + 60.0) / 60.0, 0, 1)
+        ];
+
+        /// <summary>Converts a domain Characteristics object to the same 8-D feature space.</summary>
+        public static double[] ToFeatureVector(Domain.Entities.Characteristics c) =>
+        [
+            c.Energy,
+            c.Danceability,
+            c.Valence,
+            c.Acousticness,
+            c.Speechiness,
+            c.Instrumentalness,
+            Math.Clamp(c.Tempo / 220.0, 0, 1),
+            Math.Clamp((c.Loudness + 60.0) / 60.0, 0, 1)
         ];
 
         // ── Result construction ──────────────────────────────────────────────────
@@ -200,7 +214,9 @@ namespace AiAgents.MusicAgent.ML
                 if (indices.Count == 0)
                 {
                     clusters.Add(new ClusterInfo(c, 0, "Empty",
-                        FeatureNames.Zip(centroids[c]).ToDictionary(x => x.First, x => Math.Round(x.Second, 3))));
+                        FeatureNames.Zip(centroids[c]).ToDictionary(x => x.First, x => Math.Round(x.Second, 3)),
+                        AvgIntraClusterDistance: 0,
+                        StdIntraClusterDistance: 0));
                     continue;
                 }
 
@@ -214,7 +230,18 @@ namespace AiAgents.MusicAgent.ML
                     .Zip(centroids[c])
                     .ToDictionary(x => x.First, x => Math.Round(x.Second, 3));
 
-                clusters.Add(new ClusterInfo(c, indices.Count, dominant, centroidDict));
+                // Intra-cluster distances (for anomaly scoring)
+                var distances = indices
+                    .Select(i => Math.Sqrt(SquaredDistance(points[i], centroids[c])))
+                    .ToArray();
+                double avgDist = distances.Average();
+                double stdDist = distances.Length > 1
+                    ? Math.Sqrt(distances.Select(d => Math.Pow(d - avgDist, 2)).Average())
+                    : 0;
+
+                clusters.Add(new ClusterInfo(c, indices.Count, dominant, centroidDict,
+                    AvgIntraClusterDistance: Math.Round(avgDist, 4),
+                    StdIntraClusterDistance: Math.Round(stdDist, 4)));
             }
             return clusters;
         }
