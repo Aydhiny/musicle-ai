@@ -29,6 +29,7 @@ import { ClusterPanel } from "@/components/ClusterPanel";
 import { TrainingHistoryChart } from "@/components/TrainingHistoryChart";
 import { CorrelationHeatmap } from "@/components/CorrelationHeatmap";
 import { CrossValidationPanel } from "@/components/CrossValidationPanel";
+import { GenreDriftChart } from "@/components/GenreDriftChart";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -254,6 +255,7 @@ export default function MlDashboardPage() {
     { id: "clusters",     label: "Clusters",    icon: Network },
     { id: "correlations", label: "Correlations",icon: TrendingUp },
     { id: "cv",           label: "Cross-Val",   icon: RefreshCw },
+    { id: "drift",        label: "Drift",       icon: Zap },
     { id: "history",      label: "History",     icon: History },
   ];
 
@@ -627,6 +629,21 @@ export default function MlDashboardPage() {
                   <h2 className="text-base font-semibold text-white mb-1">k-Fold Cross-Validation</h2>
                 </div>
                 <CrossValidationPanel initial={cvData?.result ?? null} />
+              </div>
+            )}
+
+            {/* ── Drift Tab ── */}
+            {activeTab === "drift" && (
+              <div className="bg-white/3 border border-white/8 rounded-2xl p-6 space-y-4">
+                <div>
+                  <h2 className="text-base font-semibold text-white mb-1">Genre Drift Detection</h2>
+                  <p className="text-xs text-white/50 leading-relaxed">
+                    Concept drift occurs when the statistical properties of the data the model was
+                    trained on change over time. This view shows how the genre distribution of uploaded
+                    tracks shifts — if the mix shifts significantly, the model may need retraining.
+                  </p>
+                </div>
+                <GenreDriftChart />
               </div>
             )}
 

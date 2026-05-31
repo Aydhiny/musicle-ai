@@ -1,6 +1,8 @@
 using AiAgents.MusicAgent.Application.Interfaces;
+using AiAgents.MusicAgent.Infrastructure;
 using AiAgents.MusicAgent.ML;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -23,6 +25,7 @@ namespace AiAgents.Web.Controllers
         private readonly KMeansClusteringService _kMeans;
         private readonly FeatureCorrelationService _correlations;
         private readonly CrossValidationService _crossValidation;
+        private readonly MusicAgentDbContext _db;
         private readonly ILogger<MlController> _logger;
 
         public MlController(
@@ -35,6 +38,7 @@ namespace AiAgents.Web.Controllers
             KMeansClusteringService kMeans,
             FeatureCorrelationService correlations,
             CrossValidationService crossValidation,
+            MusicAgentDbContext db,
             ILogger<MlController> logger)
         {
             _librarySettings  = librarySettings;
@@ -46,6 +50,7 @@ namespace AiAgents.Web.Controllers
             _kMeans           = kMeans;
             _correlations     = correlations;
             _crossValidation  = crossValidation;
+            _db               = db;
             _logger           = logger;
         }
 
@@ -343,6 +348,95 @@ namespace AiAgents.Web.Controllers
                 explanation        = $"The model classified this track as {req.PredictedGenre} primarily " +
                                      $"based on {(supportingFeatures.Count > 0 ? ((dynamic)supportingFeatures[0]).feature : "audio features")} " +
                                      $"and {supportingFeatures.Count} other matching signals."
+            });
+        }
+
+        /// <summary>
+        /// Returns a genre distribution timeline from uploaded tracks in the database.
+        /// Groups completed analyses by day and genre, showing how the upload pattern
+        /// shifts over time — useful for detecting concept drift (model distribution shift).
+        /// </summary>
+        [HttpGet("genre-drift")]
+        public async Task<IActionResult> GetGenreDrift(
+            [FromQuery] int days = 30,
+            CancellationToken ct = default)
+        {
+            days = Math.Clamp(days, 7, 365);
+            var since = DateTime.UtcNow.AddDays(-days).Date;
+
+            var rows = await _db.Analyses
+                .AsNoTracking()
+                .Where(a => a.AnalyzedAt >= since && !string.IsNullOrEmpty(a.Genre))
+                .Select(a => new { a.Genre, Date = a.AnalyzedAt.Date, a.Confidence })
+                .ToListAsync(ct);
+
+            if (rows.Count == 0)
+                return Ok(new { days, total = 0, timeline = Array.Empty<object>(), genreBreakdown = Array.Empty<object>() });
+
+            // Daily genre counts
+            var timeline = rows
+                .GroupBy(r => r.Date)
+                .OrderBy(g => g.Key)
+                .Select(g => new
+                {
+                    date  = g.Key.ToString("yyyy-MM-dd"),
+                    total = g.Count(),
+                    avgConfidence = Math.Round(g.Average(r => r.Confidence), 1),
+                    genres = g.GroupBy(r => r.Genre)
+                               .ToDictionary(gg => gg.Key, gg => gg.Count())
+                })
+                .ToList();
+
+            // Overall genre breakdown for the period
+            var genreBreakdown = rows
+                .GroupBy(r => r.Genre)
+                .Select(g => new
+                {
+                    genre     = g.Key,
+                    count     = g.Count(),
+                    pct       = Math.Round(g.Count() * 100.0 / rows.Count, 1),
+                    avgConf   = Math.Round(g.Average(r => r.Confidence), 1)
+                })
+                .OrderByDescending(x => x.count)
+                .ToList();
+
+            // Detect "drift": compare first-half vs second-half genre distribution
+            var midpoint  = since.AddDays(days / 2);
+            var firstHalf = rows.Where(r => r.Date < midpoint).GroupBy(r => r.Genre)
+                               .ToDictionary(g => g.Key, g => g.Count());
+            var secondHalf = rows.Where(r => r.Date >= midpoint).GroupBy(r => r.Genre)
+                                .ToDictionary(g => g.Key, g => g.Count());
+
+            int firstTotal  = firstHalf.Values.Sum();
+            int secondTotal = secondHalf.Values.Sum();
+
+            var driftSignals = new List<object>();
+            if (firstTotal > 0 && secondTotal > 0)
+            {
+                var allGenres = firstHalf.Keys.Union(secondHalf.Keys);
+                foreach (var genre in allGenres)
+                {
+                    double pct1 = (firstHalf.GetValueOrDefault(genre, 0) * 100.0) / firstTotal;
+                    double pct2 = (secondHalf.GetValueOrDefault(genre, 0) * 100.0) / secondTotal;
+                    double delta = pct2 - pct1;
+                    if (Math.Abs(delta) >= 5)
+                        driftSignals.Add(new { genre, pctFirst = Math.Round(pct1, 1), pctSecond = Math.Round(pct2, 1), delta = Math.Round(delta, 1) });
+                }
+                driftSignals.Sort((a, b) => Math.Abs(((dynamic)b).delta).CompareTo(Math.Abs(((dynamic)a).delta)));
+            }
+
+            return Ok(new
+            {
+                days,
+                total          = rows.Count,
+                since          = since.ToString("yyyy-MM-dd"),
+                timeline,
+                genreBreakdown,
+                driftSignals,
+                driftDetected  = driftSignals.Count > 0,
+                description    = "Genre drift measures how the uploaded track distribution shifts over time. " +
+                                 "If certain genres appear more in the second half of the period, the data " +
+                                 "distribution is drifting — a signal to retrain or adjust the model."
             });
         }
 
