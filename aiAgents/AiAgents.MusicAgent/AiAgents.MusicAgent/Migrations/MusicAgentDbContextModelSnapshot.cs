@@ -46,6 +46,9 @@ namespace AiAgents.MusicAgent.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<string>("GenreProbabilitiesJson")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("ImprovementsJson")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");

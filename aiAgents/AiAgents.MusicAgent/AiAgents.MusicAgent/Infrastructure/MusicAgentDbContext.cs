@@ -233,6 +233,7 @@ namespace AiAgents.MusicAgent.Infrastructure
                 entity.Property(e => e.CharacteristicsJson).HasColumnType("nvarchar(max)");
                 entity.Property(e => e.StrengthsJson).HasColumnType("nvarchar(max)");
                 entity.Property(e => e.ImprovementsJson).HasColumnType("nvarchar(max)");
+                entity.Property(e => e.GenreProbabilitiesJson).HasColumnType("nvarchar(max)");
 
                 entity.Ignore(e => e.Strengths);
                 entity.Ignore(e => e.Improvements);

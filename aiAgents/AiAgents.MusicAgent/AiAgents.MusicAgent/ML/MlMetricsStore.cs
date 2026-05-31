@@ -34,17 +34,53 @@ namespace AiAgents.MusicAgent.ML
 
         // Per-class breakdown for the genre classifier
         public IReadOnlyDictionary<string, ClassMetrics>? PerClassMetrics { get; init; }
+
+        // Genre labels in score-index order (used to build probability dictionaries)
+        public IReadOnlyList<string>? GenreLabels { get; init; }
+
+        // Full NxN confusion matrix: [actual][predicted] counts, rows/cols = GenreLabels order
+        public IReadOnlyList<IReadOnlyList<int>>? ConfusionMatrix { get; init; }
+
+        // Feature importance: feature name → normalised importance score (0–100)
+        public IReadOnlyDictionary<string, double>? FeatureImportance { get; init; }
     }
 
     public record ClassMetrics(double Precision, double Recall, double F1);
 
+    /// <summary>One recorded training run, stored in-memory for the learning-curve chart.</summary>
+    public record TrainingRun(
+        DateTimeOffset TrainedAt,
+        string Library,
+        double Accuracy,
+        double LogLoss,
+        int Samples);
+
+    /// <summary>
+    /// Summary of a K-Means clustering pass over the Spotify dataset.
+    /// Stored as a singleton snapshot — replaced on every retrain.
+    /// </summary>
+    public record ClusteringSnapshot(
+        int K,
+        int TotalPoints,
+        double Inertia,
+        IReadOnlyList<ClusterInfo> Clusters,
+        DateTimeOffset ComputedAt);
+
+    public record ClusterInfo(
+        int ClusterId,
+        int Size,
+        string DominantGenre,
+        IReadOnlyDictionary<string, double> Centroid);
+
     /// <summary>
     /// Singleton write-through cache of per-model training results.
-    /// Thread-safe: ConcurrentDictionary handles concurrent Upsert / All calls.
+    /// Thread-safe: ConcurrentDictionary / Interlocked for all mutable state.
     /// </summary>
     public class MlMetricsStore
     {
         private readonly ConcurrentDictionary<string, ModelSnapshot> _snapshots = new();
+        private readonly ConcurrentQueue<TrainingRun> _history = new();
+        private volatile ClusteringSnapshot? _clustering;
 
         public void Upsert(ModelSnapshot snapshot) =>
             _snapshots[snapshot.Name] = snapshot;
@@ -54,5 +90,20 @@ namespace AiAgents.MusicAgent.ML
 
         public ModelSnapshot? Get(string name) =>
             _snapshots.GetValueOrDefault(name);
+
+        // ── Training history ─────────────────────────────────────────────────
+
+        public void AddTrainingRun(TrainingRun run) => _history.Enqueue(run);
+
+        /// <summary>Returns the last 20 training runs in chronological order.</summary>
+        public IReadOnlyList<TrainingRun> TrainingHistory =>
+            _history.ToArray().TakeLast(20).ToList();
+
+        // ── K-Means clustering ───────────────────────────────────────────────
+
+        public void SetClustering(ClusteringSnapshot snapshot) =>
+            _clustering = snapshot;
+
+        public ClusteringSnapshot? GetClustering() => _clustering;
     }
 }

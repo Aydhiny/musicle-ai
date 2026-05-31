@@ -128,28 +128,39 @@ namespace AiAgents.MusicAgent.Web.Controllers
                 _logger.LogWarning(ex, "Error parsing JSON for track {TrackId}", trackId);
             }
 
+            // Parse genre probabilities if stored
+            Dictionary<string, float>? genreProbabilities = null;
+            try
+            {
+                if (!string.IsNullOrEmpty(track.Analysis.GenreProbabilitiesJson))
+                    genreProbabilities = System.Text.Json.JsonSerializer
+                        .Deserialize<Dictionary<string, float>>(track.Analysis.GenreProbabilitiesJson);
+            }
+            catch { /* non-critical */ }
+
             // Return full analysis with analysisId
             return Ok(new
             {
-                trackId = track.Id,
-                analysisId = track.Analysis.Id, // ? CRITICAL: Include Analysis ID for feedback
-                fileName = track.FileName,
-                status = track.Status.ToString(),
+                trackId    = track.Id,
+                analysisId = track.Analysis.Id,
+                fileName   = track.FileName,
+                status     = track.Status.ToString(),
                 uploadedAt = track.UploadedAt,
-                audioUrl = $"/api/analysis/{track.Id}/audio",
-                analysis = new
+                audioUrl   = $"/api/analysis/{track.Id}/audio",
+                analysis   = new
                 {
-                    id = track.Analysis.Id, // ? Also include here for clarity
-                    genre = track.Analysis.Genre,
-                    subgenre = track.Analysis.Subgenre,
-                    confidence = track.Analysis.Confidence,
+                    id              = track.Analysis.Id,
+                    genre           = track.Analysis.Genre,
+                    subgenre        = track.Analysis.Subgenre,
+                    confidence      = track.Analysis.Confidence,
                     commercialScore = track.Analysis.CommercialScore,
                     productionScore = track.Analysis.ProductionScore,
-                    viralPotential = track.Analysis.ViralPotential,
+                    viralPotential  = track.Analysis.ViralPotential,
                     characteristics = characteristics,
-                    strengths = strengths ?? new List<string>(),
-                    improvements = improvements ?? new List<string>(),
-                    analyzedAt = track.Analysis.AnalyzedAt
+                    strengths       = strengths ?? new List<string>(),
+                    improvements    = improvements ?? new List<string>(),
+                    genreProbabilities = genreProbabilities,
+                    analyzedAt      = track.Analysis.AnalyzedAt
                 }
             });
         }

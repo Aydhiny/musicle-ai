@@ -16,5 +16,6 @@ namespace AiAgents.MusicAgent.Domain.Rules
         public List<SpotifyTrackDto> Recommendations { get; set; } = new();
         public List<string> Strengths { get; set; } = new();
         public List<string> Improvements { get; set; } = new();
+        public IReadOnlyDictionary<string, float>? GenreProbabilities { get; set; }
     }
 }

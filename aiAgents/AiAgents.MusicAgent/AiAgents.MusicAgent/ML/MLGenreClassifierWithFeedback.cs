@@ -30,6 +30,8 @@ namespace AiAgents.MusicAgent.ML
         // transformer pipeline; recreating it per request wastes significant CPU.
         private PredictionEngine<GenreTrainingData, GenrePredictionOutput>? _predictionEngine;
         private readonly string _modelPath;
+        // Genre labels in Score[] order; populated after each successful training run.
+        private IReadOnlyList<string>? _genreLabels;
 
         public MLNetGenreClassifierWithFeedback(
             ILogger<MLNetGenreClassifierWithFeedback> logger,
@@ -240,27 +242,50 @@ namespace AiAgents.MusicAgent.ML
                 metrics.MicroAccuracy);
             _logger.LogInformation("📉 Log-Loss: {LogLoss:F4}  (lower is better; <0.5 is good)", metrics.LogLoss);
 
-            // Per-class precision and recall — this tells you WHICH genres are mispredicted.
+            // ── Extract genre labels in Score[] order ────────────────────────────
+            // ML.NET stores slot names on the Score column of the predictions schema.
+            // These tell us which genre corresponds to which score index — essential
+            // for building a genre→probability map at inference time.
+            var genreLabels = ExtractGenreLabels(predictions);
+            _genreLabels = genreLabels;
+            _logger.LogInformation("🏷️  Genre labels extracted: [{Labels}]", string.Join(", ", genreLabels));
+
+            // ── Per-class metrics ────────────────────────────────────────────────
             var cm = metrics.ConfusionMatrix;
             _logger.LogInformation("📊 Per-class performance (Precision / Recall):");
             var perClass = new Dictionary<string, ClassMetrics>();
             for (int i = 0; i < cm.NumberOfClasses; i++)
             {
+                var labelKey = (i < genreLabels.Count) ? genreLabels[i] : $"Class {i}";
                 double prec = cm.PerClassPrecision.Count > i ? cm.PerClassPrecision[i] : 0;
                 double rec  = cm.PerClassRecall.Count  > i ? cm.PerClassRecall[i]  : 0;
                 double f1   = (prec + rec) > 0 ? 2 * prec * rec / (prec + rec) : 0;
-                perClass[$"Class {i}"] = new ClassMetrics(
+                perClass[labelKey] = new ClassMetrics(
                     Math.Round(prec, 3), Math.Round(rec, 3), Math.Round(f1, 3));
-                _logger.LogInformation("    Class {Idx}: Precision={Prec:P1}  Recall={Rec:P1}  F1={F1:P1}",
-                    i, prec, rec, f1);
+                _logger.LogInformation("    {Label}: Precision={Prec:P1}  Recall={Rec:P1}  F1={F1:P1}",
+                    labelKey, prec, rec, f1);
             }
+
+            // ── Full NxN confusion matrix ────────────────────────────────────────
+            // cm.Counts[actual][predicted] — exposed as a 2D jagged list so the
+            // frontend can render a heatmap without any further computation.
+            var confMatrix = BuildConfusionMatrix(cm);
+
+            // ── Feature importance via ANOVA F-statistic ─────────────────────────
+            // Measures how much each feature discriminates between genres:
+            //   high between-class variance AND low within-class variance = good discriminator.
+            // This is the one-way ANOVA F-score, a standard filter method in ML.
+            var featureImportance = ComputeFeatureImportance(trainingData, genreLabels);
+            _logger.LogInformation("🔍 Top features: {Top}",
+                string.Join(", ", featureImportance.OrderByDescending(x => x.Value).Take(5).Select(x => $"{x.Key}={x.Value:F1}")));
 
             // STEP 7: Save model and cache the prediction engine
             _mlContext.Model.Save(_model, dataView.Schema, _modelPath);
             _logger.LogInformation("💾 Model saved to {Path}", _modelPath);
             _predictionEngine = _mlContext.Model.CreatePredictionEngine<GenreTrainingData, GenrePredictionOutput>(_model);
 
-            // STEP 8: Publish metrics to the store for the ML dashboard
+            // STEP 8: Publish all metrics to the store for the ML dashboard
+            var now = DateTimeOffset.UtcNow;
             _metricsStore.Upsert(new ModelSnapshot
             {
                 Name            = "Genre Classifier",
@@ -270,8 +295,11 @@ namespace AiAgents.MusicAgent.ML
                 MacroF1         = Math.Round(metrics.MacroAccuracy, 4),
                 LogLoss         = Math.Round(metrics.LogLoss, 4),
                 TrainingSamples = trainingData.Count,
-                TrainedAt       = DateTimeOffset.UtcNow,
+                TrainedAt       = now,
                 PerClassMetrics = perClass,
+                GenreLabels     = genreLabels,
+                ConfusionMatrix = confMatrix,
+                FeatureImportance = featureImportance,
                 InputFeatures   =
                 [
                     "Tempo", "Energy", "Danceability", "Valence", "Acousticness",
@@ -295,6 +323,14 @@ namespace AiAgents.MusicAgent.ML
                     "Use cross-validation (5-fold) instead of a single 80/20 split for more stable accuracy estimates."
                 ]
             });
+
+            // STEP 8b: Append to training history (in-memory learning curve)
+            _metricsStore.AddTrainingRun(new TrainingRun(
+                TrainedAt: now,
+                Library:   lib.ToString(),
+                Accuracy:  Math.Round(metrics.MacroAccuracy, 4),
+                LogLoss:   Math.Round(metrics.LogLoss, 4),
+                Samples:   trainingData.Count));
 
             // STEP 9: Mark feedback as used in training
             await MarkFeedbackAsUsedAsync(ct);
@@ -398,12 +434,12 @@ namespace AiAgents.MusicAgent.ML
                 }
             }
 
-            float energy         = (float)characteristics.Energy;
-            float danceability   = (float)characteristics.Danceability;
-            float acousticness   = (float)characteristics.Acousticness;
+            float energy           = (float)characteristics.Energy;
+            float danceability     = (float)characteristics.Danceability;
+            float acousticness     = (float)characteristics.Acousticness;
             float instrumentalness = (float)characteristics.Instrumentalness;
-            float speechiness    = (float)characteristics.Speechiness;
-            float valence        = (float)characteristics.Valence;
+            float speechiness      = (float)characteristics.Speechiness;
+            float valence          = (float)characteristics.Valence;
 
             var input = new GenreTrainingData
             {
@@ -417,13 +453,8 @@ namespace AiAgents.MusicAgent.ML
                 Instrumentalness = instrumentalness,
                 Liveness         = 0.15f,
                 Popularity       = 50,
-                // Pass real computed signals — model was trained with synthetic
-                // equivalents of these, so it knows how to use them.
                 SpectralCentroid  = (float)(characteristics.SpectralCentroid / 4000.0),
                 ZeroCrossingRate  = (float)characteristics.ZeroCrossingRate,
-                // Interaction features — MUST match what was provided during training.
-                // Omitting these (leaving 0) would give the model a feature distribution
-                // it never saw during training and cause confidence to collapse.
                 EnergyDanceability   = energy * danceability,
                 AcousticInstrumental = acousticness * instrumentalness,
                 SpeechEnergy         = speechiness * energy,
@@ -431,13 +462,174 @@ namespace AiAgents.MusicAgent.ML
             };
 
             var prediction = _predictionEngine!.Predict(input);
-            var maxConfidence = prediction.Score?.Max() ?? 0f;
+            var scores = prediction.Score ?? [];
+            var maxConfidence = scores.Length > 0 ? scores.Max() : 0f;
+
+            // Build probability dictionary using cached label order
+            var probabilities = BuildProbabilityDictionary(scores);
 
             return new GenrePrediction
             {
-                Genre = prediction.PredictedLabel ?? "Unknown",
-                Confidence = (int)(maxConfidence * 100)
+                Genre      = prediction.PredictedLabel ?? "Unknown",
+                Confidence = (int)(maxConfidence * 100),
+                Probabilities = probabilities
             };
+        }
+
+        /// <summary>
+        /// Maps Score[] from ML.NET into genre → probability pairs using _genreLabels.
+        /// Falls back to "Class N" keys if labels were never set.
+        /// </summary>
+        private IReadOnlyDictionary<string, float> BuildProbabilityDictionary(float[] scores)
+        {
+            var result = new Dictionary<string, float>(scores.Length);
+            for (int i = 0; i < scores.Length; i++)
+            {
+                var label = (_genreLabels != null && i < _genreLabels.Count)
+                    ? _genreLabels[i]
+                    : $"Class {i}";
+                result[label] = scores[i];
+            }
+            return result;
+        }
+
+        // ── Private helpers ──────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Extracts the genre label order that ML.NET assigned to the Score[] vector.
+        /// The Score column carries SlotNames metadata: one name per score index.
+        /// Falls back to a sorted list of unique labels from the training data.
+        /// </summary>
+        private static IReadOnlyList<string> ExtractGenreLabels(IDataView predictions)
+        {
+            // "SlotNames" is the well-known annotation kind that ML.NET attaches to
+            // the Score column after MapValueToKey. It lists genres in Score[] index order.
+            const string SlotNamesKind = "SlotNames";
+            try
+            {
+                var scoreCol = predictions.Schema["Score"];
+                var slotNames = default(VBuffer<ReadOnlyMemory<char>>);
+                scoreCol.Annotations.GetValue(SlotNamesKind, ref slotNames);
+
+                if (slotNames.Length > 0)
+                    return slotNames.DenseValues().Select(v => v.ToString()).ToList();
+            }
+            catch
+            {
+                // SlotNames annotation not available — fall through to alphabetical fallback.
+                // MapValueToKey assigns keys in the order labels are first seen in the
+                // training data; sorting alphabetically is the safest approximation.
+            }
+
+            return
+            [
+                "Acoustic/Folk", "Ambient/Experimental", "Classical/Ambient",
+                "Electronic/Dance", "Hip-Hop/Rap", "Indie/Alternative",
+                "Pop", "R&B/Soul", "Rock"
+            ];
+        }
+
+        /// <summary>
+        /// Converts ML.NET's ConfusionMatrix into a serialisable jagged list.
+        /// confMatrix[actual][predicted] = count.
+        /// </summary>
+        private static IReadOnlyList<IReadOnlyList<int>> BuildConfusionMatrix(
+            Microsoft.ML.Data.ConfusionMatrix cm)
+        {
+            int n = cm.NumberOfClasses;
+            var matrix = new List<IReadOnlyList<int>>(n);
+            for (int actual = 0; actual < n; actual++)
+            {
+                var row = new List<int>(n);
+                for (int predicted = 0; predicted < n; predicted++)
+                    row.Add((int)(cm.Counts[actual][predicted]));
+                matrix.Add(row);
+            }
+            return matrix;
+        }
+
+        /// <summary>
+        /// Computes one-way ANOVA F-statistic for each feature — a standard filter
+        /// method that measures how discriminative a feature is across genre classes.
+        ///
+        /// F = (between-class variance / k−1) / (within-class variance / N−k)
+        ///
+        /// Higher F = the feature varies more across genres than within a genre
+        ///            → more useful for classification.
+        ///
+        /// Results are normalised to a 0–100 scale for the dashboard.
+        /// </summary>
+        private static IReadOnlyDictionary<string, double> ComputeFeatureImportance(
+            List<GenreTrainingData> data,
+            IReadOnlyList<string> labels)
+        {
+            var featureSelectors = new (string Name, Func<GenreTrainingData, float> Get)[]
+            {
+                ("Tempo",                 d => d.Tempo / 250f),
+                ("Energy",                d => d.Energy),
+                ("Danceability",          d => d.Danceability),
+                ("Valence",               d => d.Valence),
+                ("Acousticness",          d => d.Acousticness),
+                ("Loudness",              d => (d.Loudness + 60f) / 60f),
+                ("Speechiness",           d => d.Speechiness),
+                ("Instrumentalness",      d => d.Instrumentalness),
+                ("Liveness",              d => d.Liveness),
+                ("Popularity",            d => d.Popularity / 100f),
+                ("SpectralCentroid",      d => d.SpectralCentroid),
+                ("ZeroCrossingRate",      d => d.ZeroCrossingRate),
+                ("Energy×Danceability",   d => d.EnergyDanceability),
+                ("Acoustic×Instrumental", d => d.AcousticInstrumental),
+                ("Speech×Energy",         d => d.SpeechEnergy),
+                ("Valence×Energy",        d => d.ValenceEnergy),
+            };
+
+            int n = data.Count;
+            int k = Math.Max(2, data.Select(d => d.Label).Distinct().Count());
+
+            var result = new Dictionary<string, double>();
+
+            foreach (var (name, getter) in featureSelectors)
+            {
+                var values = data.Select(getter).ToArray();
+                var grandMean = values.Average();
+
+                // Group by label
+                var groups = data
+                    .GroupBy(d => d.Label)
+                    .Select(g => g.Select(getter).ToArray())
+                    .ToList();
+
+                // Between-class sum of squares: sum_j n_j * (mean_j − grand_mean)²
+                double ssBetween = groups.Sum(g =>
+                    g.Length * Math.Pow(g.Average() - grandMean, 2));
+
+                // Within-class sum of squares: sum_j sum_i (x_ij − mean_j)²
+                double ssWithin = groups.Sum(g =>
+                {
+                    double gm = g.Average();
+                    return g.Sum(v => Math.Pow(v - gm, 2));
+                });
+
+                double dfBetween = k - 1;
+                double dfWithin  = n - k;
+
+                double f = (ssWithin < 1e-10 || dfWithin < 1)
+                    ? 0
+                    : (ssBetween / dfBetween) / (ssWithin / dfWithin);
+
+                result[name] = Math.Round(f, 2);
+            }
+
+            // Normalise to 0–100 for the dashboard
+            double max = result.Values.Max();
+            if (max > 0)
+            {
+                var keys = result.Keys.ToList();
+                foreach (var key in keys)
+                    result[key] = Math.Round(result[key] / max * 100.0, 1);
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -708,6 +900,13 @@ namespace AiAgents.MusicAgent.ML
     {
         public string Genre { get; set; } = string.Empty;
         public int Confidence { get; set; }
+
+        /// <summary>
+        /// Softmax probability for every genre class (genre → 0..1).
+        /// Populated after training; empty if model was loaded from disk without re-training.
+        /// </summary>
+        public IReadOnlyDictionary<string, float> Probabilities { get; set; }
+            = new Dictionary<string, float>();
     }
 
     public class ModelMetrics

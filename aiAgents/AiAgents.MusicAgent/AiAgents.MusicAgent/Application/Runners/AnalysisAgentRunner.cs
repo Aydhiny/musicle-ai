@@ -122,17 +122,18 @@ namespace AiAgents.MusicAgent.Application.Runners
 
                 return new AnalysisDecision
                 {
-                    Track = track,
-                    Characteristics = characteristics,
-                    Genre = genrePrediction.Genre,
-                    Subgenre = subgenre,
-                    Confidence = genrePrediction.Confidence,
-                    CommercialScore = scores.CommercialScore,
-                    ProductionScore = scores.ProductionScore,
-                    ViralPotential = scores.ViralPotential,
-                    Recommendations = recommendations,
-                    Strengths = scores.Strengths,
-                    Improvements = scores.Improvements
+                    Track               = track,
+                    Characteristics     = characteristics,
+                    Genre               = genrePrediction.Genre,
+                    Subgenre            = subgenre,
+                    Confidence          = genrePrediction.Confidence,
+                    CommercialScore     = scores.CommercialScore,
+                    ProductionScore     = scores.ProductionScore,
+                    ViralPotential      = scores.ViralPotential,
+                    Recommendations     = recommendations,
+                    Strengths           = scores.Strengths,
+                    Improvements        = scores.Improvements,
+                    GenreProbabilities  = genrePrediction.Probabilities
                 };
             }
             catch (Exception ex)
@@ -158,6 +159,9 @@ namespace AiAgents.MusicAgent.Application.Runners
                 SimilarTracksJson = JsonSerializer.Serialize(decision.Recommendations),
                 Strengths = decision.Strengths ?? new List<string>(),
                 Improvements = decision.Improvements ?? new List<string>(),
+                GenreProbabilitiesJson = decision.GenreProbabilities != null
+                    ? JsonSerializer.Serialize(decision.GenreProbabilities)
+                    : null,
                 AnalyzedAt = DateTime.UtcNow
             };
 

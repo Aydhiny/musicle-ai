@@ -22,6 +22,8 @@ namespace AiAgents.MusicAgent.Domain.Entities
         public string StrengthsJson { get; set; } = "[]";
         public string ImprovementsJson { get; set; } = "[]";
         public string SimilarTracksJson { get; set; } = "[]";
+        // Softmax probability distribution across all genre classes (genre → 0..1)
+        public string? GenreProbabilitiesJson { get; set; }
 
         public DateTime AnalyzedAt { get; set; }
         public List<string> Strengths { get; internal set; } = new();
