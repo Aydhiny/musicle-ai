@@ -436,7 +436,8 @@ namespace AiAgents.MusicAgent.Web.Controllers
         }
     }
 
-    // DTO classes (move to separate file if needed)
+    // DTO: mirrors Domain.Entities.Characteristics for JSON round-trip through CharacteristicsJson.
+    // Must stay in sync with the domain entity so all fields serialise/deserialise correctly.
     public class Characteristics
     {
         public double Tempo { get; set; }
@@ -449,5 +450,6 @@ namespace AiAgents.MusicAgent.Web.Controllers
         public double Instrumentalness { get; set; }
         public double SpectralCentroid { get; set; }
         public double DynamicRange { get; set; }
+        public double ZeroCrossingRate { get; set; }
     }
 }
