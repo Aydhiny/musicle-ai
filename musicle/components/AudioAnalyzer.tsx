@@ -371,24 +371,21 @@ export default function AudioAnalyzer() {
 
   const saveToSketchbook = useCallback(() => {
     if (!result || !file) return;
-    const sketch: Sketch = {
-      id: `upload-${Date.now()}`,
+    // addSketch expects NewSketchInput (the creation shape), not the full Sketch entity
+    const input: import("@/context/SketchbookContext").NewSketchInput = {
+      file,
       name: file.name.replace(/\.[^.]+$/, ""),
       type: "upload",
       duration: result.duration,
       bpm: result.bpm,
       key: result.key,
       scale: result.scale,
-      created: "just now",
       waveform: result.waveform,
-      ai: false,
       tags: [result.scale, `${result.bpm}bpm`],
-      fav: false,
       hue: nextHue(sketches),
-      audioFile: file,
-      audioBuffer: audioBuffer ?? undefined,
+      isAi: false,
     };
-    addSketch(sketch);
+    addSketch(input);
     setSaved(true);
   }, [result, file, audioBuffer, addSketch, sketches]);
 

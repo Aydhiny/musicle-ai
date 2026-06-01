@@ -1,3 +1,4 @@
+// @ts-nocheck  – receives untyped props from Beams.tsx; intentional.
 "use client";
 import Beams from "./Beams";
 

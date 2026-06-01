@@ -15,26 +15,12 @@ import { useAuth } from "@/context/AuthContext";
 import { useState } from "react";
 
 const navItems = [
-  {
-    name: "Feed",
-    link: "/feed",
-  },
-  {
-    name: "Sketchbook",
-    link: "/sketchbook",
-  },
-  {
-    name: "ML",
-    link: "/ml",
-  },
-  {
-    name: "Pricing",
-    link: "/pricing",
-  },
-  {
-    name: "Contact",
-    link: "/contact",
-  },
+  { name: "Feed",       link: "/feed" },
+  { name: "Sketchbook", link: "/sketchbook" },
+  { name: "ML Engine",  link: "/ml" },
+  { name: "Admin",      link: "/admin" },
+  { name: "Pricing",    link: "/pricing" },
+  { name: "Contact",    link: "/contact" },
 ];
 
 export function Navbar() {

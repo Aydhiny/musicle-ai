@@ -71,13 +71,12 @@ interface Analysis {
   analyzedAt: string;
 }
 
-interface AnalysisResult {
+export interface AnalysisResult {
   trackId: string;
-  /** Top-level analysisId returned by GET /api/analysis/{trackId} (fixed backend) */
+  /** Top-level analysisId returned by GET /api/analysis/{trackId} */
   analysisId?: string;
   fileName: string;
   uploadedAt: string;
-  /** Optional - present once backend sets it */
   status?: string;
   audioUrl?: string;
   analysis: Analysis;

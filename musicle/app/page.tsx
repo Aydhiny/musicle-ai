@@ -12,7 +12,7 @@ import { Spotlight } from "@/components/ui/spotlight-new";
 import { Cover } from "@/components/ui/cover";
 import { FeaturesSectionDemo } from "@/components/FeaturesSectionDemo";
 import MusicleFeedSection from "@/components/MusicleFeedSection";
-import { ResultsSection } from "@/components/ResultsSection";
+import { ResultsSection, AnalysisResult } from "@/components/ResultsSection";
 import { motion } from "framer-motion";
 import GradientText from "@/components/GradientText";
 import Link from "next/link";
@@ -42,15 +42,6 @@ interface Analysis {
   characteristics: AudioCharacteristics;
   strengths?: string[];
   improvements?: string[];
-}
-
-interface AnalysisResult {
-  trackId: string;
-  fileName: string;
-  status: string;
-  uploadedAt: string;
-  audioUrl?: string;
-  analysis?: Analysis;
 }
 
 interface RecentTrack {

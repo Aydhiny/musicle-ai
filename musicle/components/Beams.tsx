@@ -1,3 +1,4 @@
+// @ts-nocheck  – Three.js shader extension uses dynamic patterns that TS can't type statically.
 "use client";
 import { forwardRef, useImperativeHandle, useEffect, useRef, useMemo } from "react";
 

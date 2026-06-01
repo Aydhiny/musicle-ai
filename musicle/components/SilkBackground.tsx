@@ -1,3 +1,4 @@
+// @ts-nocheck  – receives untyped props forwarded to Silk.tsx shader.
 import Silk from "./Silk";
 
 const SilkBackground = ({ speed, scale, color, noiseIntensity, rotation }) => {

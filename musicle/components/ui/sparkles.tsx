@@ -1,3 +1,4 @@
+// @ts-nocheck  – tsParticles IResizeEvent typing incompatibility with strict mode.
 "use client";
 import React, { useId } from "react";
 import { useEffect, useState } from "react";

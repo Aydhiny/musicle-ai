@@ -19,6 +19,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -163,6 +164,41 @@ using (var scope = app.Services.CreateScope())
 
     var db = services.GetRequiredService<MusicAgentDbContext>();
     db.Database.Migrate();
+
+    // ── Seed admin user ────────────────────────────────────────────────────
+    // Creates the default admin account on first run if it doesn't exist yet.
+    // Credentials come from appsettings.json → Seed section.
+    var seedLogger = services.GetRequiredService<ILogger<Program>>();
+    var seedConfig = app.Configuration.GetSection("Seed");
+    var adminEmail    = seedConfig["AdminEmail"]    ?? "admin@musicle.app";
+    var adminUserName = seedConfig["AdminUserName"] ?? "admin";
+    var adminPassword = seedConfig["AdminPassword"] ?? "Admin@Musicle2026!";
+
+    if (!db.AppUsers.Any(u => u.NormalizedEmail == adminEmail.ToUpperInvariant()))
+    {
+        var hasher = services.GetRequiredService<AiAgents.MusicAgent.Application.Interfaces.IPasswordHasherService>();
+        var (hash, salt) = hasher.HashPassword(adminPassword);
+
+        db.AppUsers.Add(new AiAgents.MusicAgent.Domain.Entities.AppUser
+        {
+            Id                  = Guid.NewGuid(),
+            UserName            = adminUserName,
+            NormalizedUserName  = adminUserName.ToUpperInvariant(),
+            Email               = adminEmail,
+            NormalizedEmail     = adminEmail.ToUpperInvariant(),
+            PasswordHash        = hash,
+            PasswordSalt        = salt,
+            Bio                 = "System administrator",
+            IsActive            = true,
+            CreatedAt           = DateTime.UtcNow,
+        });
+        db.SaveChanges();
+        seedLogger.LogInformation("✅ Admin user seeded: {Email}", adminEmail);
+    }
+    else
+    {
+        seedLogger.LogInformation("ℹ️  Admin user already exists: {Email}", adminEmail);
+    }
 
     var datasetLoader = services.GetRequiredService<ISpotifyDatasetLoader>();
     var logger = services.GetRequiredService<ILogger<Program>>();

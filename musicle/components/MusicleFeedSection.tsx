@@ -11,7 +11,7 @@ const WAVEFORM_BARS = Array.from({ length: 40 }, (_, i) => Math.round(Math.abs(M
 const SKETCH_BARS = Array.from({ length: 32 }, (_, i) => Math.round(30 + Math.abs(Math.sin(i * 0.25) * 40)));
 
 const MusicleFeedSection = () => {
-  const [playingSketch, setPlayingSketch] = useState(null);
+  const [playingSketch, setPlayingSketch] = useState<number | null>(null);
 
   const container = {
     hidden: { opacity: 0 },
