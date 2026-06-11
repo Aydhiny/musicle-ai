@@ -459,16 +459,18 @@ namespace AiAgents.Web.Controllers
             if (dataset.Count == 0)
                 return Ok(new { activeLibrary = lib.ToString(), warning = "Dataset not loaded — models not retrained." });
 
+            // CancellationToken.None: training is a long-running write operation.
+            // An HTTP disconnect mid-training must not leave models in a partial state.
             await Task.WhenAll(
-                Task.Run(() => _featureLearner.Train(dataset),      ct),
-                Task.Run(() => _commercialPredictor.Train(dataset), ct)
+                Task.Run(() => _featureLearner.Train(dataset)),
+                Task.Run(() => _commercialPredictor.Train(dataset))
             );
 
-            await _genreClassifier.TrainAsync(ct);
+            await _genreClassifier.TrainAsync(CancellationToken.None);
 
             // Re-cluster with the same k as the cached result (default 8)
             var prevK = _metricsStore.GetClustering()?.K ?? 8;
-            await Task.Run(() => _kMeans.Cluster(dataset, prevK), ct);
+            await Task.Run(() => _kMeans.Cluster(dataset, prevK));
 
             _logger.LogInformation("All models retrained with {Library}", lib);
 
@@ -490,14 +492,16 @@ namespace AiAgents.Web.Controllers
             if (dataset.Count == 0)
                 return BadRequest(new { error = "Spotify dataset not loaded. Restart the backend to reload it." });
 
+            // CancellationToken.None: training is a long-running write operation.
+            // An HTTP disconnect mid-training must not leave models in a partial state.
             await Task.WhenAll(
-                Task.Run(() => _featureLearner.Train(dataset),      ct),
-                Task.Run(() => _commercialPredictor.Train(dataset), ct)
+                Task.Run(() => _featureLearner.Train(dataset)),
+                Task.Run(() => _commercialPredictor.Train(dataset))
             );
-            await _genreClassifier.TrainAsync(ct);
+            await _genreClassifier.TrainAsync(CancellationToken.None);
 
             var prevK = _metricsStore.GetClustering()?.K ?? 8;
-            await Task.Run(() => _kMeans.Cluster(dataset, prevK), ct);
+            await Task.Run(() => _kMeans.Cluster(dataset, prevK));
 
             return Ok(new
             {

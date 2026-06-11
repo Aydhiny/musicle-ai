@@ -120,21 +120,24 @@ namespace AiAgents.MusicAgent.Application.Services
 
             _logger.LogInformation("📊 Pending feedback: {Count} corrections", feedbackCountBefore);
 
-            // STEP 5: RETRAIN the model (with the user's correction)
+            // STEP 5: RETRAIN the model (with the user's correction).
+            // CancellationToken.None: training must run to completion — a browser
+            // disconnect mid-fit would leave the model file in an inconsistent state.
             _logger.LogInformation("🔧 Retraining model with user feedback...");
-            var metrics = await _classifier.TrainAsync(ct);
+            var metrics = await _classifier.TrainAsync(CancellationToken.None);
 
             _logger.LogInformation("✅ Retraining completed - Accuracy: {Accuracy:P2}", metrics.Accuracy);
 
-            // STEP 6: Count feedback after training (should be marked as used)
+            // STEP 6: Count feedback after training (should be marked as used).
+            // Still CT.None — training completed, we must read the final state.
             var feedbackCountAfter = await _db.Set<UserFeedback>()
-                .CountAsync(f => !f.UsedInTraining, ct);
+                .CountAsync(f => !f.UsedInTraining, CancellationToken.None);
 
             _logger.LogInformation("📊 Pending feedback after training: {Count}", feedbackCountAfter);
 
             // STEP 7: Get NEW prediction on SAME characteristics
             _logger.LogInformation("🔮 Getting prediction after learning...");
-            var finalPrediction = await _classifier.PredictAsync(testCharacteristics, ct);
+            var finalPrediction = await _classifier.PredictAsync(testCharacteristics, CancellationToken.None);
 
             _logger.LogInformation("📝 Final prediction: {Genre} ({Confidence}%)",
                 finalPrediction.Genre, finalPrediction.Confidence);
@@ -243,15 +246,15 @@ namespace AiAgents.MusicAgent.Application.Services
 
             await _db.SaveChangesAsync(ct);
 
-            // Retrain
+            // Retrain — CT.None for same reason as DemonstrateAsync.
             _logger.LogInformation("🔧 Retraining with {Count} corrections...", correctionCount);
-            var metrics = await _classifier.TrainAsync(ct);
+            var metrics = await _classifier.TrainAsync(CancellationToken.None);
 
-            // Test all characteristics again
+            // Test all characteristics again (post-training — use CT.None).
             var afterCorrections = new List<string>();
             foreach (var chars in acousticCharacteristics.Take(correctionCount))
             {
-                var prediction = await _classifier.PredictAsync(chars, ct);
+                var prediction = await _classifier.PredictAsync(chars, CancellationToken.None);
                 afterCorrections.Add(prediction.Genre);
             }
 

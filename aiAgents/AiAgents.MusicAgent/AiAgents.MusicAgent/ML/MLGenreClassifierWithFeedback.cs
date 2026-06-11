@@ -332,8 +332,10 @@ namespace AiAgents.MusicAgent.ML
                 LogLoss:   Math.Round(metrics.LogLoss, 4),
                 Samples:   trainingData.Count));
 
-            // STEP 9: Mark feedback as used in training
-            await MarkFeedbackAsUsedAsync(ct);
+            // STEP 9: Mark feedback as used in training.
+            // Use CancellationToken.None — the model is already saved and this write
+            // MUST complete even if the HTTP request was cancelled mid-training.
+            await MarkFeedbackAsUsedAsync(CancellationToken.None);
 
             return new ModelMetrics
             {
